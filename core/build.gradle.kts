@@ -5,8 +5,14 @@ plugins {
     id("org.jetbrains.kotlin.jvm")
     id("org.jetbrains.kotlin.plugin.serialization")
     `java-library`
+    jacoco
 }
 kotlin { jvmToolchain(17) }
+jacoco { toolVersion = "0.8.15" }
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports { xml.required.set(true); html.required.set(true) }
+}
 dependencies {
     api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     api("org.nanohttpd:nanohttpd:2.3.1")

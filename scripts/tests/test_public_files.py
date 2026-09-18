@@ -12,6 +12,7 @@ class PublicFilesTest(unittest.TestCase):
         for path in ("data/grades.XLSX", "grades.xls", "grades.xlsm", "grades.xlsb",
                      "server-data/teacher.json", "reports/student.pdf", ".env.production",
                      "local.properties", ".tools/key", "release.keystore", "file:Zone.Identifier",
+                     "identity.p12", "identity.pfx", "private.key", "tls-password",
                      "local-data/workbook.json", "data/rubrics/private.draft.json", "scripts/extract-rubric.py"):
             with self.subTest(path=path):
                 self.assertTrue(module.forbidden(path))

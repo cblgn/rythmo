@@ -21,6 +21,7 @@ data class RaceReport(
     val equalLapCount: Int? = null,
     val referenceLapMeters: Int = 400,
     val maxGradeTenths: Int = 200,
+    val cancelledPassages: List<String> = emptyList(),
 )
 
 enum class TimingMode { MANUAL, AUTOMATIC }

@@ -7,6 +7,7 @@ vulnerability lookup and exit status are handled by the official OSV scanner.
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -38,11 +39,10 @@ def inventory(snapshot: dict) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("snapshot", type=Path)
-    parser.add_argument("output", type=Path)
     args = parser.parse_args()
     data = inventory(json.loads(args.snapshot.read_text()))
-    args.output.write_text(json.dumps(data, indent=2) + "\n")
-    print(f"Exported {len(data['results'][0]['packages'])} resolved packages for OSV.")
+    print(json.dumps(data, indent=2))
+    print(f"Exported {len(data['results'][0]['packages'])} resolved packages for OSV.", file=sys.stderr)
 
 
 if __name__ == "__main__":

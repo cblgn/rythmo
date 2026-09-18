@@ -66,6 +66,7 @@ class TeacherStore(directory: File) {
         val prior = state.results.find { it.upload.runner.id == clean.runner.id }
         if (prior != null) {
             require(prior.upload.deviceId == clean.deviceId && prior.upload.groupId == clean.groupId && prior.upload.sessionId == clean.sessionId)
+            require(prior.upload.runner.cancelledPassages == clean.runner.cancelledPassages) { "Historique des annulations modifié après envoi." }
             require(prior.upload.runner.rawCumulativeMs == clean.runner.rawCumulativeMs && prior.upload.runner.pupil == clean.runner.pupil)
             require(clean.runner.corrections.take(prior.upload.runner.corrections.size) == prior.upload.runner.corrections) { "Historique des corrections incohérent." }
             if (prior.upload.runner.revision == clean.runner.revision) {

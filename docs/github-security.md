@@ -120,19 +120,21 @@ Ce résultat décrit un instant donné ; une nouvelle alerte doit faire l'objet 
 correctif. Consulter [les alertes](https://github.com/cblgn/rythmo/security/dependabot)
 et les runs actuels plutôt que déduire l'état de sécurité de ce document.
 
-## SonarQube Cloud : connexion à terminer
+## SonarQube Cloud
 
 Le workflow `sonar.yml` et `sonar-project.properties` préparent une analyse de
 `main`, à la manière de Storybook, sans exécuter de PR avec le secret Sonar.
-Le projet dédié `cblgn_rythmo` et son secret ne sont pas créés automatiquement.
-Importer Rythmo dans l'organisation Sonar `cblgn`, configurer une analyse par CI,
-puis ajouter **SONAR_TOKEN** dans les secrets Actions de Rythmo et mettre la
-variable **SONAR_ENABLED** à `true`. Ne jamais coller le jeton dans une issue,
+Le projet dédié `cblgn_rythmo` utilise le secret Actions **SONAR_TOKEN** et la
+variable **SONAR_ENABLED** à `true`. Pour reproduire la configuration, importer
+Rythmo dans l'organisation Sonar `cblgn`, puis configurer ces deux valeurs.
+Ne jamais coller le jeton dans une issue,
 un fichier ou une conversation. Le jeton Storybook n'est pas copié.
 
 Le script vérifie l'arrêt de l'analyse automatique avant de transmettre les
 sources. L'analyse attend le quality gate. Le workflow apporte les résultats
-JUnit ; une mesure de couverture XML dédiée reste à configurer. Sonar n'est pas
+JUnit et les rapports de couverture réels : JaCoCo pour Kotlin/JVM et Android,
+LCOV pour JavaScript, coverage.py pour les scripts Python. Le code non testé
+reste visible dans le résultat ; aucun écran n’est exclu pour relever le score. Sonar n'est pas
 un check de PR obligatoire ; les contrôles GitHub fonctionnent sans lui.
 
 ## Vérifier

@@ -9,11 +9,12 @@ import subprocess
 def forbidden(path: str) -> bool:
     file = PurePosixPath(path)
     local_directories = {"server-data", "local-data", ".tools", ".android-user", ".codex", ".agents", ".gradle-user"}
-    private_extensions = {".xls", ".xlsx", ".xlsm", ".xlsb", ".pdf", ".jks", ".keystore", ".apk", ".aab"}
+    private_extensions = {".xls", ".xlsx", ".xlsm", ".xlsb", ".pdf", ".jks", ".keystore", ".p12", ".pfx", ".key", ".apk", ".aab"}
     return (
         bool(local_directories.intersection(file.parts))
         or file.suffix.lower() in private_extensions
         or file.name == "local.properties"
+        or file.name == "tls-password"
         or file.name.endswith(":Zone.Identifier")
         or (file.name.startswith(".env") and file.name != ".env.example")
         or (path.startswith("data/rubrics/") and file.name.endswith(".draft.json"))

@@ -10,21 +10,22 @@ import androidx.compose.ui.unit.dp
 import fr.rythmo.domain.PaceChange
 
 private val RythmoColors = lightColorScheme(
-    primary = Color(0xFF185ABC),
+    primary = Color(0xFFBC4D29),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE3EDFF),
-    onPrimaryContainer = Color(0xFF10356D),
-    secondary = Color(0xFF53627B),
-    background = Color(0xFFF8F9FD),
-    surface = Color(0xFFF8F9FD),
-    surfaceContainer = Color(0xFFEEF1F8),
+    primaryContainer = Color(0xFFF5E3D5),
+    onPrimaryContainer = Color(0xFF5E2412),
+    secondary = Color(0xFF765A49),
+    background = Color(0xFFFFFCF5),
+    surface = Color(0xFFFFFCF5),
+    surfaceContainer = Color(0xFFF0EFE9),
     surfaceContainerLow = Color.White,
-    onSurface = Color(0xFF172033),
-    onSurfaceVariant = Color(0xFF505D72),
-    outline = Color(0xFF737F92),
+    onSurface = Color(0xFF332B25),
+    onSurfaceVariant = Color(0xFF6E5F54),
+    outline = Color(0xFF827063),
 )
 
 object PaceColors {
+    val equivalent = Color(0xFF185ABC)
     val faster = Color(0xFF146C3A)
     val slower = Color(0xFFB3261E)
 }
@@ -33,7 +34,7 @@ object PaceColors {
 fun paceColor(pace: PaceChange?): Color = when (pace) {
     PaceChange.FASTER -> PaceColors.faster
     PaceChange.SLOWER -> PaceColors.slower
-    PaceChange.EQUIVALENT -> MaterialTheme.colorScheme.primary
+    PaceChange.EQUIVALENT -> PaceColors.equivalent
     null -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
