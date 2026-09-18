@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "fictional-1000m-example",
+  "name": "Exemple fictif — performance et régularité",
+  "revision": 1,
+  "status": "EXAMPLE",
+  "notice": "Valeurs entièrement inventées. Exemple de format uniquement, non chargé par le moteur du MVP.",
+  "applicability": {"level": "6e", "distanceMeters": 1000, "lapCount": 6, "equalLengthLaps": true},
+  "maxPointsTenths": 200,
+  "components": [
+    {
+      "id": "performance",
+      "label": "Performance",
+      "type": "TIME_TABLE",
+      "maxPointsTenths": 120,
+      "lookupRule": "LINEAR_INTERPOLATION",
+      "outsideRange": "CLAMP",
+      "rounding": "NEAREST_TENTH_HALF_UP",
+      "tables": {
+        "BOY": [{"timeMs": 300000, "pointsTenths": 120}, {"timeMs": 420000, "pointsTenths": 0}],
+        "GIRL": [{"timeMs": 330000, "pointsTenths": 120}, {"timeMs": 450000, "pointsTenths": 0}]
+      }
+    },
+    {
+      "id": "regularity",
+      "label": "Régularité",
+      "type": "CUMULATIVE_IRREGULARITY_TABLE",
+      "maxPointsTenths": 80,
+      "lookupRule": "LINEAR_INTERPOLATION",
+      "outsideRange": "CLAMP",
+      "rounding": "NEAREST_TENTH_HALF_UP",
+      "thresholds": [
+        {"irregularityMs": 5000, "pointsTenths": 80},
+        {"irregularityMs": 25000, "pointsTenths": 0}
+      ]
+    }
+  ]
+}

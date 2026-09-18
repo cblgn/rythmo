@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  android:
+    name: Android and JVM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-provider: basic
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Android SDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;36.0.0"'
+      - name: Tests, lint, APK and teacher server
+        run: ./gradlew --no-daemon test lintDebug assembleDebug :server:installDist
+      - name: Test and lint reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verification-reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            core/build/reports/tests/
+            server/build/reports/tests/
+          retention-days: 7
+      - name: Debug APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rythmo-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  security:
+    name: Secrets and workflow checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install checksum-verified analysis tools
+        run: python3 scripts/ci-tools.py gitleaks actionlint
+      - name: Scan complete Git history for secrets
+        run: .tools/ci/gitleaks git --redact --no-banner --log-opts="--all"
+      - name: Reject local records and spreadsheets
+        run: python3 scripts/check-public-files.py
+      - name: Check GitHub Actions workflows
+        run: .tools/ci/actionlint -shellcheck=""
+      - name: Check helper scripts
+        run: |
+          for script in scripts/*.sh; do bash -n "$script"; done
+          node --check core/src/main/resources/teacher/admin.js
+          python3 -m compileall -q scripts
+          python3 -m unittest discover -s scripts/tests -v

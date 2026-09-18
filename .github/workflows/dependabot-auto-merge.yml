@@ -1,0 +1,73 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, ready_for_review, converted_to_draft]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    name: Dependabot merge policy
+    if: >-
+      vars.DEPENDABOT_AUTOMERGE == 'true' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # Metadata only: never check out or run PR code with this write token.
+      - name: Read verified Dependabot metadata
+        if: '!github.event.pull_request.draft'
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ github.token }}
+      - name: Determine eligibility
+        id: policy
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCIES: ${{ steps.metadata.outputs.dependency-names }}
+        run: |
+          python3 - <<'PY'
+          import os
+          names = [name.strip() for name in os.environ['DEPENDENCIES'].split(',') if name.strip()]
+          toolchain = ('com.android.', 'org.jetbrains.kotlin', 'gradle')
+          eligible = (
+              os.environ['UPDATE_TYPE'] in ('version-update:semver-minor', 'version-update:semver-patch')
+              and bool(names)
+              and not any(name.startswith(toolchain) for name in names)
+          )
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'eligible={str(eligible).lower()}\n')
+          PY
+      - name: Enable auto-merge after required checks
+        if: '!github.event.pull_request.draft && steps.policy.outputs.eligible == ''true'''
+        run: gh pr merge "$PR_URL" --auto --squash --match-head-commit "$PR_SHA"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Remove auto-merge for ineligible updates
+        if: >-
+          always() &&
+          (github.event.pull_request.draft || steps.metadata.outcome != 'success' ||
+           steps.policy.outputs.eligible != 'true')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          enabled="$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')"
+          if [ "$enabled" = true ]; then
+            gh pr merge "$PR_URL" --disable-auto
+          fi

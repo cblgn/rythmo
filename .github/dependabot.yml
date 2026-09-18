@@ -1,0 +1,37 @@
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '08:00'
+      timezone: Europe/Paris
+    open-pull-requests-limit: 5
+    groups:
+      kotlin:
+        patterns: ['org.jetbrains.kotlin*']
+        update-types: [minor, patch]
+      androidx:
+        patterns: ['androidx.*']
+        update-types: [minor, patch]
+      libraries:
+        patterns: ['*']
+        exclude-patterns: ['org.jetbrains.kotlin*', 'androidx.*', 'com.android.*', 'com.android.tools.*', 'gradle']
+        update-types: [minor, patch]
+    commit-message:
+      prefix: 'deps'
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '08:30'
+      timezone: Europe/Paris
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ['*']
+        update-types: [minor, patch]
+    commit-message:
+      prefix: 'ci'

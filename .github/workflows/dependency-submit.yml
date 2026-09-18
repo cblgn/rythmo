@@ -1,0 +1,26 @@
+name: Submit dependency graph
+
+on:
+  workflow_run:
+    workflows: [Dependency graph]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  submit:
+    name: Submit dependency snapshot
+    if: >-
+      (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      # Submit resolved graphs even when the vulnerability audit fails.
+      # Never check out or execute the triggering branch in this privileged job.
+      - uses: gradle/actions/dependency-submission@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          dependency-graph: download-and-submit

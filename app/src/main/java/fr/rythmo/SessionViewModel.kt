@@ -1,0 +1,260 @@
+package fr.rythmo
+
+import android.app.Application
+import android.os.SystemClock
+import android.provider.Settings
+import androidx.compose.runtime.*
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import fr.rythmo.domain.RaceInput
+import fr.rythmo.domain.SplitValidation
+import fr.rythmo.session.*
+import fr.rythmo.sync.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.io.File
+import java.time.LocalDateTime
+import java.util.Base64
+
+enum class TeacherAction { CLOSE_GROUP, ABANDON_RUNNER, UPLOAD }
+data class TeacherRequest(val action: TeacherAction, val runnerId: String? = null)
+
+class SessionViewModel(application: Application) : AndroidViewModel(application) {
+    private val directory = File(application.filesDir, "sessions")
+    private val storage = JsonFile(File(directory, "client.json"), ClientArchive.serializer()) { ClientArchive() }
+    private val mutex = Mutex()
+    private val generating = mutableSetOf<String>()
+    private val bootCount = Settings.Global.getInt(application.contentResolver, Settings.Global.BOOT_COUNT, -1)
+    var archive by mutableStateOf(ClientArchive()); private set
+    var ready by mutableStateOf(false); private set
+    var loadError by mutableStateOf<String?>(null); private set
+    var message by mutableStateOf<String?>(null); private set
+    var networkBusy by mutableStateOf(false); private set
+    var discovered by mutableStateOf<List<String>>(emptyList()); private set
+    var claims by mutableStateOf<List<GroupClaim>>(emptyList()); private set
+    var pdfErrors by mutableStateOf<Map<String, String>>(emptyMap()); private set
+    var elapsedMs by mutableStateOf(0L); private set
+    var teacherRequest by mutableStateOf<TeacherRequest?>(null); private set
+    var teacherError by mutableStateOf<String?>(null); private set
+    var checkingTeacher by mutableStateOf(false); private set
+    val clockInterrupted: Boolean get() = archive.activeGroup?.let { it.startElapsedMs != null && it.bootCount != bootCount } == true
+
+    init {
+        viewModelScope.launch {
+            try {
+                archive = withContext(Dispatchers.IO) { storage.read().also(storage::write) }
+                ready = true
+                retryReports()
+            } catch (e: Exception) { loadError = "Sauvegarde illisible. Les fichiers ont été conservés : ${e.message}" }
+        }
+        viewModelScope.launch {
+            while (isActive) {
+                val group = archive.activeGroup
+                val start = group?.startElapsedMs
+                elapsedMs = if (start != null && group.bootCount == bootCount)
+                    (SystemClock.elapsedRealtime() - start).coerceAtLeast(0) else 0
+                delay(100)
+            }
+        }
+    }
+
+    private suspend fun save(value: ClientArchive) {
+        withContext(Dispatchers.IO) { storage.write(value) }
+        archive = value
+    }
+    private fun action(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            mutex.withLock {
+                try { check(ready); block() }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    val detail = e.message ?: "L’opération a échoué ; les données précédentes sont conservées."
+                    if (teacherRequest != null) teacherError = detail else message = detail
+                }
+            }
+        }
+    }
+    fun dismissMessage() { message = null }
+    fun chooseRole(role: AppRole) = action { save(archive.copy(role = role)) }
+    fun connection(url: String, code: String, name: String) = action {
+        require(name.isNotBlank() && name.length <= 100)
+        save(archive.copy(serverUrl = url.trim().trimEnd('/'), pairingCode = code.trim(), deviceName = name.trim()))
+    }
+    fun discover() {
+        viewModelScope.launch {
+            networkBusy = true
+            try {
+                discovered = withContext(Dispatchers.IO) { discoverTeachers() }
+                message = if (discovered.isEmpty()) "Aucun serveur trouvé. Vérifiez le Wi-Fi, ou utilisez l’adresse du PC / le tunnel USB." else "Sélectionnez le serveur de votre professeur."
+            } catch (e: Exception) { message = "Recherche impossible : ${e.message}" }
+            finally { networkBusy = false }
+        }
+    }
+    private fun client() = SyncClient(archive.serverUrl, archive.pairingCode)
+    fun download() = action {
+        networkBusy = true
+        try {
+            val downloaded = withContext(Dispatchers.IO) { client().download(archive.deviceId, archive.deviceName) }
+            val current = archive.activeGroup
+            require(current == null || current.complete || current.session.id == downloaded.session.id) { "Terminez ou clôturez la série en cours avant de changer de séance." }
+            save(archive.copy(session = downloaded.session, teacherAccess = downloaded.teacherAccess,
+                activeGroupId = if (current != null && current.session.id != downloaded.session.id) null else archive.activeGroupId))
+            claims = downloaded.claims
+            message = "Séance reçue : ${downloaded.session.schoolClass}, ${downloaded.session.distanceMeters} m."
+        } finally { networkBusy = false }
+    }
+    fun prepare(pupilIds: Set<String>) = action {
+        val session = requireNotNull(archive.session) { "Synchronisez d’abord la séance." }
+        require(archive.activeGroup == null || archive.activeGroup!!.complete) { "Une série est déjà préparée." }
+        require(pupilIds.size in 1..MAX_GROUP_SIZE)
+        val pupils = session.pupils.filter { it.id in pupilIds }
+        require(pupils.size == pupilIds.size)
+        val group = RaceGroup(session = session, runners = pupils.map { RunnerRecord(pupil = it) })
+        // Persist the group ID before the network request so retries reuse the same reservation.
+        save(archive.copy(groups = archive.groups + group, activeGroupId = group.id))
+        claimGroup(group)
+    }
+    fun retryClaim() = action { claimGroup(requireNotNull(archive.activeGroup)) }
+    private suspend fun claimGroup(group: RaceGroup) {
+        networkBusy = true
+        try {
+            val claim = GroupClaim(group.session.id, group.id, archive.deviceId, archive.deviceName, group.runners.map { it.pupil.id })
+            val confirmed = withContext(Dispatchers.IO) { client().claim(claim) }
+            check(confirmed == claim) { "Confirmation de groupe incohérente." }
+            save(archive.replace(group.copy(claimed = true)))
+            claims = claims.filterNot { it.groupId == claim.groupId } + claim
+            message = "Groupe prêt. Le Wi-Fi peut être coupé pendant la course."
+        } finally { networkBusy = false }
+    }
+    fun startRace() = action {
+        val group = requireNotNull(archive.activeGroup)
+        require(group.claimed && group.startElapsedMs == null && !group.complete)
+        save(archive.replace(group.copy(startElapsedMs = SystemClock.elapsedRealtime(), bootCount = bootCount,
+            startedAt = LocalDateTime.now().toString())))
+    }
+    fun record(runnerId: String) {
+        val group = archive.activeGroup ?: return
+        val start = group.startElapsedMs ?: return
+        val elapsed = SystemClock.elapsedRealtime() - start
+        action {
+            require(!clockInterrupted) { "Le téléphone a redémarré. Clôturez la série ; les passages enregistrés sont conservés." }
+            val current = archive.groups.first { it.id == group.id }
+            val next = current.record(runnerId, elapsed)
+            save(archive.replace(next))
+            if (next.runners.first { it.id == runnerId }.finished(next.session)) generateReport(next.id, runnerId)
+        }
+    }
+    fun requestUpload() { teacherError = null; teacherRequest = TeacherRequest(TeacherAction.UPLOAD) }
+    fun requestCloseGroup() { teacherError = null; teacherRequest = TeacherRequest(TeacherAction.CLOSE_GROUP) }
+    fun requestAbandon(runnerId: String) { teacherError = null; teacherRequest = TeacherRequest(TeacherAction.ABANDON_RUNNER, runnerId) }
+    fun cancelTeacherAction() { if (!checkingTeacher) { teacherRequest = null; teacherError = null } }
+    fun confirmTeacherAction(code: String) = action {
+        val request = teacherRequest ?: return@action
+        checkingTeacher = true
+        try {
+            val access = requireNotNull(archive.teacherAccess) { "Synchronisez le code professeur avant cette action." }
+            val now = System.currentTimeMillis()
+            require(!archive.teacherAttempts.blocked(now)) { "Trop de tentatives. Patientez 30 secondes." }
+            if (!withContext(Dispatchers.Default) { access.accepts(code) }) {
+                save(archive.copy(teacherAttempts = archive.teacherAttempts.rejected(now)))
+                error("Code professeur incorrect. Ce code est différent du code de synchronisation.")
+            }
+            save(archive.copy(teacherAttempts = TeacherAttempts()))
+            teacherRequest = null
+            teacherError = null
+            when (request.action) {
+                TeacherAction.ABANDON_RUNNER -> {
+                    val group = requireNotNull(archive.activeGroup)
+                    val runner = group.runners.first { it.id == request.runnerId }
+                    require(!runner.closed(group.session)) { "Cet élève a déjà terminé." }
+                    save(archive.replace(group.copy(runners = group.runners.map {
+                        if (it.id == runner.id) it.copy(abandoned = true) else it
+                    })))
+                    message = "Abandon enregistré pour ${runner.pupil.label}. Ses passages sont conservés, sans note."
+                }
+                TeacherAction.CLOSE_GROUP -> { closeGroup(); uploadAuthorized(code) }
+                TeacherAction.UPLOAD -> uploadAuthorized(code)
+            }
+        } finally { checkingTeacher = false }
+    }
+    private suspend fun closeGroup() {
+        val group = requireNotNull(archive.activeGroup)
+        save(archive.replace(group.copy(runners = group.runners.map {
+            if (it.closed(group.session)) it else it.copy(abandoned = true)
+        })))
+        message = "Série clôturée. Les élèves sans arrivée sont non notés ; les passages sont conservés."
+    }
+    fun newGroup() = action {
+        require(archive.activeGroup == null || archive.activeGroup!!.complete)
+        save(archive.copy(activeGroupId = null))
+    }
+    fun selectGroup(id: String) = action {
+        val current = archive.activeGroup
+        require(current == null || current.complete || current.id == id) { "Terminez la série active avant de changer de bilan." }
+        require(archive.groups.any { it.id == id })
+        save(archive.copy(activeGroupId = id))
+    }
+    fun correct(runnerId: String, number: Int, minutes: String, seconds: String) = action {
+        val validation = RaceInput.validateLap(minutes, seconds)
+        require(validation is SplitValidation.Accepted) { (validation as SplitValidation.Invalid).message }
+        val group = requireNotNull(archive.activeGroup)
+        val runner = group.runners.first { it.id == runnerId }.correct(group.session, number, validation.durationMs)
+        save(archive.replace(group.copy(runners = group.runners.map { if (it.id == runnerId) runner else it })))
+        generateReport(group.id, runnerId)
+        message = "Correction enregistrée. Le temps initial est conservé dans le nouveau PDF."
+    }
+    fun reportFile(runner: RunnerRecord): File = File(directory, "reports/${runner.id}-v${runner.revision}.pdf")
+    fun retryReports() {
+        archive.groups.forEach { group -> group.runners.filter { it.finished(group.session) }.forEach {
+            if (it.pdfRevision != it.revision || !reportFile(it).isFile) generateReport(group.id, it.id)
+        } }
+    }
+    private fun generateReport(groupId: String, runnerId: String) {
+        val group = archive.groups.first { it.id == groupId }
+        val runner = group.runners.first { it.id == runnerId }
+        val key = "$runnerId-${runner.revision}"
+        if (!generating.add(key)) return
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { PdfExporter.export(getApplication(), group.report(runner), reportFile(runner)) }
+                mutex.withLock {
+                    val current = archive.groups.first { it.id == groupId }
+                    save(archive.replace(current.copy(runners = current.runners.map {
+                        if (it.id == runnerId && it.revision == runner.revision) it.copy(pdfRevision = it.revision) else it
+                    })))
+                }
+                pdfErrors = pdfErrors - runnerId
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { pdfErrors = pdfErrors + (runnerId to "PDF à réessayer : ${e.message}") }
+            finally { generating.remove(key) }
+        }
+    }
+    private suspend fun uploadAuthorized(teacherCode: String) {
+        networkBusy = true
+        var count = 0
+        try {
+            for (groupSnapshot in archive.groups.filter { it.claimed }) {
+                for (snapshot in groupSnapshot.runners.filter { it.closed(groupSnapshot.session) && it.syncedRevision != it.revision }) {
+                    if (snapshot.finished(groupSnapshot.session) && (snapshot.pdfRevision != snapshot.revision || !reportFile(snapshot).isFile)) {
+                        generateReport(groupSnapshot.id, snapshot.id)
+                        continue
+                    }
+                    val response = withContext(Dispatchers.IO) {
+                        val pdf = if (snapshot.finished(groupSnapshot.session)) Base64.getEncoder().encodeToString(reportFile(snapshot).readBytes()) else null
+                        client().upload(ResultUpload(groupSnapshot.session.id, groupSnapshot.id, archive.deviceId,
+                            groupSnapshot.preparedAt, groupSnapshot.startedAt, snapshot, pdf), teacherCode)
+                    }
+                    check(response.resultId == snapshot.id && response.revision == snapshot.revision && response.gradeTenths == snapshot.grade(groupSnapshot.session)) { "Accusé de réception incohérent." }
+                    val current = archive.groups.first { it.id == groupSnapshot.id }
+                    save(archive.replace(current.copy(runners = current.runners.map {
+                        if (it.id == snapshot.id) it.copy(syncedRevision = snapshot.revision) else it
+                    })))
+                    count++
+                }
+            }
+            val pending = archive.groups.sumOf { g -> g.runners.count { it.closed(g.session) && it.syncedRevision != it.revision } }
+            message = "$count bilan(s) envoyé(s). " + if (pending == 0) "Tous les résultats terminés sont reçus par le professeur." else "$pending bilan(s) en attente de PDF. Réessayez après leur génération."
+        } finally { networkBusy = false }
+    }
+}
