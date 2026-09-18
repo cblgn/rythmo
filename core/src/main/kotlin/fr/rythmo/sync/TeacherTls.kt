@@ -1,6 +1,8 @@
 package fr.rythmo.sync
 
 import java.net.URI
+import java.net.InetAddress
+import java.net.Socket
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.CertificateException
@@ -15,7 +17,7 @@ class TeacherTls(val context: SSLContext, val certificate: X509Certificate) {
         fun fromKeyStore(store: KeyStore, password: CharArray?, alias: String): TeacherTls {
             val managers = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
             managers.init(store, password)
-            val context = SSLContext.getInstance("TLS").apply { init(managers.keyManagers, null, null) }
+            val context = SSLContext.getInstance("TLSv1.2").apply { init(managers.keyManagers, null, null) }
             return TeacherTls(context, store.getCertificate(alias) as X509Certificate)
         }
         fun fingerprint(cert: X509Certificate): String = MessageDigest.getInstance("SHA-256")
@@ -47,8 +49,8 @@ class TeacherTls(val context: SSLContext, val certificate: X509Certificate) {
             val uri = endpoint(value)
             var candidate: X509Certificate? = null
             val manager = trustManager { candidate = it; throw CertificateException("Association requise.") }
-            val context = SSLContext.getInstance("TLS").apply { init(null, arrayOf(manager), null) }
-            val socket = context.socketFactory.createSocket() as SSLSocket
+            val context = SSLContext.getInstance("TLSv1.2").apply { init(null, arrayOf(manager), null) }
+            val socket = ModernTlsSocketFactory(context.socketFactory).createSocket() as SSLSocket
             socket.use {
                 it.connect(java.net.InetSocketAddress(uri.host, if (uri.port == -1) 443 else uri.port), 7000)
                 it.soTimeout = 7000
@@ -62,9 +64,9 @@ class TeacherTls(val context: SSLContext, val certificate: X509Certificate) {
             val manager = trustManager { cert ->
                 if (!matches(cert, pin)) throw CertificateException("Identité du serveur modifiée. Nouvelle association requise.")
             }
-            val context = SSLContext.getInstance("TLS").apply { init(null, arrayOf(manager), null) }
+            val context = SSLContext.getInstance("TLSv1.2").apply { init(null, arrayOf(manager), null) }
             return (URI(uri.toString() + path).toURL().openConnection() as HttpsURLConnection).apply {
-                sslSocketFactory = context.socketFactory
+                sslSocketFactory = ModernTlsSocketFactory(context.socketFactory)
                 // A pinned local identity authenticates the server independently of its changing LAN address.
                 hostnameVerifier = HostnameVerifier { _, session ->
                     val cert = session.peerCertificates.firstOrNull() as? X509Certificate
@@ -75,4 +77,22 @@ class TeacherTls(val context: SSLContext, val certificate: X509Certificate) {
             }
         }
     }
+}
+
+/** Older Android providers can enable obsolete protocols even with a TLSv1.2 context. */
+internal class ModernTlsSocketFactory(private val delegate: SSLSocketFactory) : SSLSocketFactory() {
+    private fun restrict(socket: Socket): Socket = (socket as SSLSocket).apply {
+        enabledProtocols = supportedProtocols.filter { it == "TLSv1.2" || it == "TLSv1.3" }.toTypedArray()
+    }
+    override fun getDefaultCipherSuites(): Array<String> = delegate.defaultCipherSuites
+    override fun getSupportedCipherSuites(): Array<String> = delegate.supportedCipherSuites
+    override fun createSocket(): Socket = restrict(delegate.createSocket())
+    override fun createSocket(socket: Socket, host: String, port: Int, autoClose: Boolean): Socket =
+        restrict(delegate.createSocket(socket, host, port, autoClose))
+    override fun createSocket(host: String, port: Int): Socket = restrict(delegate.createSocket(host, port))
+    override fun createSocket(host: String, port: Int, local: InetAddress, localPort: Int): Socket =
+        restrict(delegate.createSocket(host, port, local, localPort))
+    override fun createSocket(host: InetAddress, port: Int): Socket = restrict(delegate.createSocket(host, port))
+    override fun createSocket(host: InetAddress, port: Int, local: InetAddress, localPort: Int): Socket =
+        restrict(delegate.createSocket(host, port, local, localPort))
 }

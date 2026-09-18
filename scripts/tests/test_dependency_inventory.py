@@ -16,17 +16,20 @@ def snapshot(*dependencies):
 
 
 class DependencyInventoryTest(unittest.TestCase):
-    def test_cli_exports_to_stdout_and_rejects_an_output_path(self):
+    def test_cli_streams_json_and_rejects_file_arguments(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "snapshot.json"
             source.write_text(json.dumps(snapshot({"package_url": "pkg:maven/org.demo/app@1.0"})))
             script = str(Path(__file__).parents[1] / "dependency-inventory.py")
-            result = subprocess.run([sys.executable, script, str(source)], capture_output=True, text=True, check=True)
+            result = subprocess.run([sys.executable, script], input=source.read_text(), capture_output=True, text=True, check=True)
             self.assertEqual(1, len(json.loads(result.stdout)["results"][0]["packages"]))
             target = Path(directory) / "must-not-be-written"
             rejected = subprocess.run([sys.executable, script, str(source), str(target)], capture_output=True)
             self.assertNotEqual(0, rejected.returncode)
             self.assertFalse(target.exists())
+            rejected_read = subprocess.run([sys.executable, script, str(source)], capture_output=True)
+            self.assertNotEqual(0, rejected_read.returncode)
+            self.assertEqual(b"", rejected_read.stdout)
 
     def test_all_scopes_and_transitive_dependencies_are_retained(self):
         data = snapshot(
