@@ -24,7 +24,7 @@ TOOLS = {
     ),
     "osv-scanner": (
         "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_linux_amd64",
-        "ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd87485b108",
+        "ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108",
     ),
 }
 

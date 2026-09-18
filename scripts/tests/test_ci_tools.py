@@ -24,6 +24,11 @@ def archive_with(name="scanner", symlink=False):
 
 
 class ToolIntegrityTest(unittest.TestCase):
+    def test_pinned_digests_are_complete_sha256_values(self):
+        for name, (_, digest) in ci_tools.TOOLS.items():
+            with self.subTest(tool=name):
+                self.assertRegex(digest, r"^[0-9a-f]{64}$")
+
     def test_verified_regular_binary(self):
         payload, digest = archive_with()
         self.assertEqual(b"ok", ci_tools.unpack_binary(payload, digest, "scanner"))

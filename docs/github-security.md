@@ -94,7 +94,7 @@ Activer `DEPENDABOT_AUTOMERGE=true` seulement après vérification du ruleset.
 ## Audit initial et entretien
 
 L'audit initial du 18 septembre 2026 révélait 51 alertes dans l'ancien outillage.
-La mise à niveau vers AGP 9.4.1, Gradle 9.7.1 et Kotlin 2.4.20, complétée par six
+La mise à niveau vers AGP 9.4.1, Gradle 9.7.1 et Kotlin 2.4.10, complétée par six
 contraintes minimales de versions sur des bibliothèques d'outillage, a supprimé
 les vulnérabilités trouvées par OSV : 272 versions résolues, zéro alerte lors du
 contrôle local. Ces contraintes ne rajoutent pas de bibliothèques à l'application.
