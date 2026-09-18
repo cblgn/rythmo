@@ -45,7 +45,7 @@ jobs:
       - name: Export all resolved dependencies for the vulnerability audit
         env:
           SNAPSHOT: ${{ steps.graph.outputs.dependency-graph-file }}
-        run: python3 scripts/dependency-inventory.py "$SNAPSHOT" > "$RUNNER_TEMP/osv-scanner.json"
+        run: python3 scripts/dependency-inventory.py < "$SNAPSHOT" > "$RUNNER_TEMP/osv-scanner.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dependency-inventory
@@ -68,4 +68,4 @@ jobs:
           path: ${{ runner.temp }}/dependency-inventory
       - run: python3 scripts/ci-tools.py osv-scanner
       - name: Fail on known vulnerabilities in all dependency scopes
-        run: .tools/ci/osv-scanner scan source --lockfile "osv-scanner:$RUNNER_TEMP/dependency-inventory/osv-scanner.json"
+        run: .tools/ci/osv-scanner scan source --lockfile "osv-scanner:$RUNNER_TEMP/dependency-inventory/osv-scanner.json" --lockfile requirements.txt:scripts/coverage-requirements.txt

@@ -107,6 +107,11 @@ class SyncTest {
     @Test fun `https synchronization downloads claims uploads and rejects a wrong pairing code`() {
         val store = TeacherStore(temp.newFolder())
         val identity = JvmTeacherIdentity.load(temp.newFolder())
+        ModernTlsSocketFactory(identity.context.socketFactory).createSocket().use { socket ->
+            val protocols = (socket as javax.net.ssl.SSLSocket).enabledProtocols.toSet()
+            assertTrue(protocols.isNotEmpty())
+            assertTrue(setOf("TLSv1.2", "TLSv1.3").containsAll(protocols))
+        }
         assertEquals(identity.fingerprint, TeacherTls.fingerprint(identity.certificate))
         val server = TeacherServer(store, identity, 0, "127.0.0.1")
         val admin = TeacherServer(store, identity, 0, "127.0.0.1", localAdmin = true)
