@@ -11,7 +11,6 @@ import fr.rythmo.domain.*
 import fr.rythmo.session.formatPoints
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.time.format.DateTimeFormatter
@@ -19,7 +18,7 @@ import java.time.format.DateTimeFormatter
 object PdfExporter {
     fun export(context: Context, report: RaceReport, destination: File? = null): File {
         val directory = destination?.parentFile ?: File(context.filesDir, "reports")
-        if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Dossier PDF inaccessible")
+        Files.createDirectories(directory.toPath())
         val file = destination ?: File.createTempFile("rythmo-", ".pdf", directory)
         val pending = File(directory, file.name + ".pending")
         val document = PdfDocument()
