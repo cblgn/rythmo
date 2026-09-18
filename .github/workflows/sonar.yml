@@ -38,7 +38,15 @@ jobs:
           cache-read-only: true
       - name: Android SDK
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;36.0.0"'
-      - run: ./gradlew --no-daemon test assembleDebug :server:classes
+      - run: ./gradlew --no-daemon test assembleDebug :server:classes :app:createDebugUnitTestCoverageReport :core:jacocoTestReport
+      - name: JavaScript and Python coverage
+        run: |
+          mkdir -p build/reports/js
+          node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=build/reports/js/lcov.info tests/teacher-page.test.cjs
+          python3 -m venv "$RUNNER_TEMP/coverage-venv"
+          "$RUNNER_TEMP/coverage-venv/bin/pip" install -r scripts/coverage-requirements.txt
+          "$RUNNER_TEMP/coverage-venv/bin/python" -m coverage run -m unittest discover -s scripts/tests
+          "$RUNNER_TEMP/coverage-venv/bin/python" -m coverage xml
       - uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         with:
           skipSignatureVerification: false

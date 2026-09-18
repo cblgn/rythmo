@@ -1,0 +1,9 @@
+[run]
+relative_files = True
+source = scripts
+omit =
+    scripts/tests/*
+    scripts/extract-rubric.py
+
+[xml]
+output = build/reports/python/coverage.xml

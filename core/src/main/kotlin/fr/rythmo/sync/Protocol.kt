@@ -3,7 +3,7 @@ package fr.rythmo.sync
 import fr.rythmo.session.*
 import kotlinx.serialization.Serializable
 
-const val PROTOCOL_VERSION = 2
+const val PROTOCOL_VERSION = 3
 
 @Serializable data class SessionEnvelope(val protocol: Int = PROTOCOL_VERSION, val session: SessionConfig, val claims: List<GroupClaim>, val teacherAccess: TeacherAccess? = null)
 @Serializable data class GroupClaim(val sessionId: String, val groupId: String, val deviceId: String, val deviceName: String, val pupilIds: List<String>)

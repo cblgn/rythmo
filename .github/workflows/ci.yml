@@ -34,7 +34,7 @@ jobs:
       - name: Android SDK
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;36.0.0"'
       - name: Tests, lint, APK and teacher server
-        run: ./gradlew --no-daemon test lintDebug assembleDebug :server:installDist
+        run: ./gradlew --no-daemon test lintDebug assembleDebug :server:installDist :app:createDebugUnitTestCoverageReport :core:jacocoTestReport
       - name: Test and lint reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -44,6 +44,8 @@ jobs:
             app/build/reports/tests/
             app/build/reports/lint-results-debug.*
             core/build/reports/tests/
+            app/build/reports/coverage/
+            core/build/reports/jacoco/
             server/build/reports/tests/
           retention-days: 7
       - name: Debug APK
@@ -75,5 +77,6 @@ jobs:
         run: |
           for script in scripts/*.sh; do bash -n "$script"; done
           node --check core/src/main/resources/teacher/admin.js
+          node --test tests/teacher-page.test.cjs
           python3 -m compileall -q scripts
           python3 -m unittest discover -s scripts/tests -v

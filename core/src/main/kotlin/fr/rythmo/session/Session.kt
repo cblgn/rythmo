@@ -91,16 +91,20 @@ data class SessionConfig(
 data class RecordedCorrection(val number: Int, val originalMs: Long, val correctedMs: Long, val at: String)
 
 @Serializable
+data class CancelledPassage(val number: Int, val cumulativeMs: Long, val cancelledAt: String)
+
+@Serializable
 data class RunnerRecord(
     val id: String = newId(),
     val pupil: Pupil,
     val rawCumulativeMs: List<Long> = emptyList(),
     val corrections: List<RecordedCorrection> = emptyList(),
+    val cancelledPassages: List<CancelledPassage> = emptyList(),
     val abandoned: Boolean = false,
     val pdfRevision: Int = 0,
     val syncedRevision: Int = 0,
 ) {
-    val revision: Int get() = 1 + corrections.size
+    val revision: Int get() = 1 + corrections.size + cancelledPassages.size
     fun finished(session: SessionConfig): Boolean = rawCumulativeMs.size == session.distances.size
     fun closed(session: SessionConfig): Boolean = abandoned || finished(session)
     fun cumulativeMs(session: SessionConfig): List<Long> {
@@ -118,11 +122,22 @@ data class RunnerRecord(
         require(raw.all { it.durationMs <= 86_400_000L }) { "Durée de segment invalide." }
         require(!(abandoned && finished(session)))
         require(corrections.isEmpty() || finished(session))
+        cancelledPassages.forEach {
+            require(it.number in 1..session.distances.size && it.cumulativeMs > 0)
+            LocalDateTime.parse(it.cancelledAt)
+        }
         require(corrections.map { it.number }.distinct().size == corrections.size)
         corrections.forEach {
             require(it.number in 1..raw.size && it.originalMs == raw[it.number - 1].durationMs && it.correctedMs in 1..86_400_000L)
             LocalDateTime.parse(it.at)
         }
+    }
+    fun cancelLastPassage(): RunnerRecord {
+        require(rawCumulativeMs.isNotEmpty() && !abandoned && corrections.isEmpty() && syncedRevision == 0) {
+            "Ce passage ne peut plus être annulé."
+        }
+        return copy(rawCumulativeMs = rawCumulativeMs.dropLast(1), cancelledPassages = cancelledPassages +
+            CancelledPassage(rawCumulativeMs.size, rawCumulativeMs.last(), LocalDateTime.now().toString()))
     }
     fun correct(session: SessionConfig, number: Int, durationMs: Long): RunnerRecord {
         require(finished(session) && number in 1..session.distances.size) { "Correction disponible après l’arrivée." }
@@ -154,6 +169,10 @@ data class RaceGroup(
         updated.validate(session)
         return copy(runners = runners.map { if (it.id == runnerId) updated else it })
     }
+    fun recordBatch(runnerIds: Set<String>, elapsed: Long): RaceGroup {
+        require(runnerIds.isNotEmpty() && runnerIds.size <= MAX_GROUP_SIZE)
+        return runnerIds.fold(this) { group, id -> group.record(id, elapsed) }
+    }
     fun report(runner: RunnerRecord): RaceReport {
         require(runner.finished(session))
         return RaceReport(Student(runner.pupil.lastName, runner.pupil.firstName, session.schoolClass),
@@ -163,7 +182,8 @@ data class RaceGroup(
             runner.corrections.map { LapCorrection(it.number, it.originalMs, it.correctedMs, LocalDateTime.parse(it.at)) },
             TimingMode.AUTOMATIC, startedAt?.let(LocalDateTime::parse), session.distanceMeters,
             "${session.level} · ${if (runner.pupil.sex == Sex.BOY) "Garçon" else "Fille"} · ${session.rubric.name} · ${session.rubric.version.take(8)}", runner.grade(session),
-            session.lapCount, session.passageEveryMeters, session.rubric.maxGradeTenths)
+            session.lapCount, session.passageEveryMeters, session.rubric.maxGradeTenths,
+            runner.cancelledPassages.map { "Passage ${it.number} annulé : cumul ${fr.rythmo.domain.TimeFormat.duration(it.cumulativeMs)} · ${it.cancelledAt}" })
     }
 }
 
@@ -171,8 +191,9 @@ data class RaceGroup(
 data class ClientArchive(
     val deviceId: String = newId(), val deviceName: String = "Tablette Rythmo",
     val role: AppRole = AppRole.CHOICE,
-    val serverUrl: String = "http://127.0.0.1:8765", val pairingCode: String = "",
+    val serverUrl: String = "https://127.0.0.1:8765", val pairingCode: String = "",
     val session: SessionConfig? = null, val groups: List<RaceGroup> = emptyList(), val activeGroupId: String? = null,
+    val trustedServers: Map<String, String> = emptyMap(),
     val teacherAccess: TeacherAccess? = null, val teacherAttempts: TeacherAttempts = TeacherAttempts(),
 ) {
     val activeGroup: RaceGroup? get() = groups.find { it.id == activeGroupId }

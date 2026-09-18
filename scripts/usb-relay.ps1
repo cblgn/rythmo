@@ -25,7 +25,7 @@ try {
     $port = $listener.LocalEndpoint.Port
     & $Adb -s $Serial reverse tcp:8765 "tcp:$port"
     if ($LASTEXITCODE -ne 0) { throw 'Impossible de configurer le tunnel ADB.' }
-    Write-Host '[phone] Relais USB actif. Adresse Rythmo : http://127.0.0.1:8765'
+    Write-Host '[phone] Relais USB actif. Adresse Rythmo : https://127.0.0.1:8765'
     Write-Host '[phone] Gardez ce terminal ouvert pendant les synchronisations. Ctrl+C pour fermer le relais.'
     while ($true) {
         if ($listener.Pending()) { $null = [RythmoUsbRelay]::Bridge($listener.AcceptTcpClient()) }

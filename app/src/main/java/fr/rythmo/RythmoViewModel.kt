@@ -56,6 +56,8 @@ class RythmoViewModel @JvmOverloads constructor(
     private val savedState: SavedStateHandle,
     private val monotonicNow: () -> Long = SystemClock::elapsedRealtime,
 ) : ViewModel() {
+    val raceInProgress: Boolean get() = state.startedAt != null && state.result == null
+
     private var ticker: Job? = null
     var state by mutableStateOf(
         RythmoState(

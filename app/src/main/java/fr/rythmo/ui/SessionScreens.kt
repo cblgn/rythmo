@@ -16,14 +16,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import fr.rythmo.*
+import fr.rythmo.R
 import fr.rythmo.domain.TimeFormat
 import fr.rythmo.session.*
 import kotlinx.coroutines.delay
@@ -32,44 +37,74 @@ import java.net.NetworkInterface
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RythmoWorkspace(model: SessionViewModel = viewModel()) {
+fun RythmoWorkspace(
+    model: SessionViewModel = viewModel(),
+    settings: TeacherSettingsViewModel,
+    individual: RythmoViewModel = viewModel(),
+) {
     val archive = model.archive
     val snack = remember { SnackbarHostState() }
+    var menuOpen by remember { mutableStateOf(false) }
+    var serverActive by remember { mutableStateOf(TeacherService.status.running) }
+    LaunchedEffect(Unit) { while (true) { serverActive = TeacherService.status.running; delay(1000) } }
+    LaunchedEffect(model.ready) {
+        if (model.ready) settings.restoreNavigation(archive.activeGroup == null && individual.raceInProgress)
+    }
     LaunchedEffect(model.message) {
         model.message?.let { value -> snack.showSnackbar(value, withDismissAction = true); if (model.message == value) model.dismissMessage() }
     }
-    BackHandler(archive.role != AppRole.CHOICE) { model.chooseRole(AppRole.CHOICE) }
-    if (archive.role == AppRole.INDIVIDUAL && model.ready) {
-        RythmoApp(onHome = { model.chooseRole(AppRole.CHOICE) })
-        return
+    val setupRequired = model.ready && settings.ready && !settings.setupComplete && !model.raceRunning && !individual.raceInProgress
+    BackHandler(settings.requested || settings.individual || setupRequired) {
+        if (!setupRequired && !settings.busy) {
+            if (settings.requested) settings.leaveSettings() else settings.returnToGroup()
+        }
     }
     Scaffold(topBar = {
-        if (archive.role != AppRole.CHOICE) {
-        TopAppBar(title = { Text(when (archive.role) {
-            AppRole.TIMER -> "Rythmo · Chronométrage"
-            AppRole.TEACHER -> "Rythmo · Enseignant"
-            else -> "Rythmo"
-        }, style = MaterialTheme.typography.titleLarge) }, navigationIcon = {
-            if (archive.role != AppRole.CHOICE) TextButton(onClick = { model.chooseRole(AppRole.CHOICE) }) { Text("‹ Accueil") }
+        TopAppBar(title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.ic_rythmo),
+                    contentDescription = "Logo Rythmo", modifier = Modifier.size(36.dp))
+                Column {
+                    Text("Rythmo", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, fontStyle = FontStyle.Italic, letterSpacing = (-1).sp)
+                    if (serverActive) ServerIndicator()
+                }
+            }
+        }, actions = {
+            IconButton(onClick = { menuOpen = true }, enabled = model.ready && settings.ready) {
+                Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_more_vert), contentDescription = "Menu")
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(text = { Text("Accès professeur") }, leadingIcon = { Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_school), contentDescription = null) }, onClick = { menuOpen = false; settings.requestSettings() })
+            }
         })
-        }
     }, snackbarHost = { SnackbarHost(snack) }, modifier = Modifier.fillMaxSize().imePadding()) { insets ->
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
             when {
-                !model.ready -> Column(Modifier.padding(24.dp)) {
-                    if (model.loadError == null) { CircularProgressIndicator(); Text("Chargement des séances…") }
-                    else Text(requireNotNull(model.loadError), color = MaterialTheme.colorScheme.error)
+                !model.ready || !settings.ready -> Column(Modifier.padding(24.dp)) {
+                    val error = model.loadError ?: settings.error
+                    if (error == null) { CircularProgressIndicator(); Text("Chargement des séances…") }
+                    else Text(error, color = MaterialTheme.colorScheme.error)
                 }
-                archive.role == AppRole.CHOICE -> WelcomeScreen(
-                    onTiming = { model.chooseRole(AppRole.TIMER) }, onTeacher = { model.chooseRole(AppRole.TEACHER) },
-                    onIndividual = { model.chooseRole(AppRole.INDIVIDUAL) })
-                archive.role == AppRole.TEACHER -> TeacherScreen()
+                setupRequired || settings.requested -> {
+                    if (!settings.unlocked || settings.recoveryCode != null) TeacherLockScreen(settings, setupRequired)
+                    else TeacherScreen(model, settings, individual)
+                }
+                settings.individual -> RythmoApp(model = individual, onHome = settings::returnToGroup)
                 archive.activeGroup != null -> GroupScreen(model, requireNotNull(archive.activeGroup))
                 else -> PreparationScreen(model)
             }
         }
     }
     model.teacherRequest?.let { request -> TeacherActionDialog(model, request) }
+}
+
+@Composable
+private fun ServerIndicator() {
+    Row(Modifier.clearAndSetSemantics { contentDescription = "Serveur enseignant en ligne" },
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text("●", color = PaceColors.faster, fontSize = 10.sp)
+        Text("En ligne", style = MaterialTheme.typography.labelSmall)
+    }
 }
 
 @Composable
@@ -97,18 +132,28 @@ private fun TeacherActionDialog(model: SessionViewModel, request: TeacherRequest
             }
         }, confirmButton = {
             TextButton(onClick = { model.confirmTeacherAction(code) }, enabled = code.length == 6 && !model.checkingTeacher) { Text(if (model.checkingTeacher) "Vérification…" else "Confirmer") }
-        }, dismissButton = { TextButton(onClick = model::cancelTeacherAction, enabled = !model.checkingTeacher) { Text("Annuler") } })
+        }, dismissButton = { TextButton(onClick = model::cancelTeacherAction, enabled = !model.checkingTeacher) { ActionLabel(R.drawable.ic_close, "Annuler") } })
 }
 
 @Composable
 private fun PreparationScreen(model: SessionViewModel) {
-    val archive = model.archive
+    PreparationContent(model.archive, model.claims, model.discovered, model.networkBusy,
+        model::discover, { url, code, name -> model.connection(url, code, name); model.download() },
+        model::requestUpload, model::selectGroup, model::prepare)
+}
+
+@Composable
+internal fun PreparationContent(
+    archive: ClientArchive, claims: List<fr.rythmo.sync.GroupClaim>, discovered: List<String>, networkBusy: Boolean,
+    onDiscover: () -> Unit, onDownload: (String, String, String) -> Unit,
+    onUpload: () -> Unit, onSelectGroup: (String) -> Unit, onPrepare: (Set<String>) -> Unit,
+) {
     val session = archive.session
     var url by remember(archive.serverUrl) { mutableStateOf(archive.serverUrl) }
     var code by remember(archive.pairingCode) { mutableStateOf(archive.pairingCode) }
     var name by remember(archive.deviceName) { mutableStateOf(archive.deviceName) }
     var selected by remember(session?.id) { mutableStateOf(setOf<String>()) }
-    val assigned = model.claims.filter { it.sessionId == session?.id }.flatMap { it.pupilIds }.toSet() +
+    val assigned = claims.filter { it.sessionId == session?.id }.flatMap { it.pupilIds }.toSet() +
         archive.groups.filter { it.session.id == session?.id }.flatMap { it.runners.map { r -> r.pupil.id } }
     Column(Modifier.fillMaxSize()) {
     Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -117,15 +162,15 @@ private fun PreparationScreen(model: SessionViewModel) {
         OutlinedTextField(name, { name = it }, label = { Text("Nom de cet appareil") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(url, { url = it }, label = { Text("Adresse du serveur") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth())
-        OutlinedButton(onClick = model::discover, enabled = !model.networkBusy, modifier = Modifier.fillMaxWidth()) { Text("Rechercher le professeur sur le Wi-Fi") }
-        model.discovered.forEach { address -> TextButton(onClick = { url = address }) { Text(address) } }
+        OutlinedButton(onClick = onDiscover, enabled = !networkBusy, modifier = Modifier.fillMaxWidth()) { ActionLabel(R.drawable.ic_wifi, "Rechercher le professeur sur le Wi-Fi") }
+        discovered.forEach { address -> TextButton(onClick = { url = address }) { Text(address) } }
         OutlinedTextField(code, { code = it }, label = { Text("Code d’association du professeur") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(onClick = { model.connection(url, code, name); model.download() }, enabled = !model.networkBusy && name.isNotBlank() && code.isNotBlank(),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(if (model.networkBusy) "Synchronisation…" else "Récupérer la séance") }
+        Button(onClick = { onDownload(url, code, name) }, enabled = !networkBusy && name.isNotBlank() && code.isNotBlank(),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(if (networkBusy) "Synchronisation…" else "Récupérer la séance") }
         if (session != null) {
             HorizontalDivider()
             Text("${session.schoolClass} · ${session.courseLabel}", style = MaterialTheme.typography.titleLarge)
-            Text("${session.date} · ${session.rubric.name}\nChoisissez de 1 à $MAX_GROUP_SIZE élèves. Le groupe est réservé pendant cette synchronisation.")
+            Text("${session.date} · ${session.rubric.name}\nChoisissez de 1 à $MAX_GROUP_SIZE élèves. ")
             session.pupils.forEach { pupil ->
                 val enabled = pupil.id !in assigned && (pupil.id in selected || selected.size < MAX_GROUP_SIZE)
                 Row(Modifier.fillMaxWidth().clickable(enabled = enabled) {
@@ -142,9 +187,9 @@ private fun PreparationScreen(model: SessionViewModel) {
         if (archive.groups.isNotEmpty()) {
             HorizontalDivider()
             Text("Séries conservées", style = MaterialTheme.typography.titleLarge)
-            Button(onClick = model::requestUpload, enabled = !model.networkBusy, modifier = Modifier.fillMaxWidth()) { Text("Envoyer les bilans au professeur") }
+            Button(onClick = onUpload, enabled = !networkBusy, modifier = Modifier.fillMaxWidth()) { ActionLabel(R.drawable.ic_upload, "Envoyer les bilans au professeur") }
             archive.groups.asReversed().forEach { group ->
-                OutlinedButton(onClick = { model.selectGroup(group.id) }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { onSelectGroup(group.id) }, modifier = Modifier.fillMaxWidth()) {
                     Text("${group.session.schoolClass} · ${group.preparedAt.take(16).replace('T', ' ')} · ${group.runners.size} élèves")
                 }
             }
@@ -152,9 +197,9 @@ private fun PreparationScreen(model: SessionViewModel) {
     }
     if (session != null) {
         Surface(tonalElevation = 3.dp) {
-            Button(onClick = { model.prepare(selected) }, enabled = selected.isNotEmpty() && !model.networkBusy,
+            Button(onClick = { onPrepare(selected) }, enabled = selected.isNotEmpty() && !networkBusy,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).heightIn(min = 56.dp)) {
-                Text("Préparer ${selected.size} élève(s)")
+                ActionLabel(R.drawable.ic_check, "Valider le groupe · ${selected.size} élèves")
             }
         }
     }
@@ -166,6 +211,7 @@ private fun PreparationScreen(model: SessionViewModel) {
 private fun GroupScreen(model: SessionViewModel, group: RaceGroup) {
     var runnerDetail by remember(group.id) { mutableStateOf<String?>(null) }
     var closeRequested by remember { mutableStateOf(false) }
+    var undoRunner by remember { mutableStateOf<String?>(null) }
     val view = LocalView.current
     DisposableEffect(group.startElapsedMs, group.complete, view) {
         val old = view.keepScreenOn
@@ -186,64 +232,49 @@ private fun GroupScreen(model: SessionViewModel, group: RaceGroup) {
         val runner = group.runners.first { it.id == id }
         RunnerDialog(model, group, runner) { runnerDetail = null }
     }
+    undoRunner?.let { id ->
+        AlertDialog(onDismissRequest = { undoRunner = null }, title = { Text("Annuler ce passage ?") },
+            text = { Text(group.runners.first { it.id == id }.pupil.label) },
+            confirmButton = { TextButton(onClick = { model.undoPassage(id); undoRunner = null }) { Text("Annuler le passage") } },
+            dismissButton = { TextButton(onClick = { undoRunner = null }) { Text("Conserver") } })
+    }
+    val captured = model.capturedPassage
+    var selected by remember(captured) { mutableStateOf(captured?.eligibleIds ?: emptySet()) }
+    BackHandler(captured != null) { model.dismissCapture() }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("${group.session.schoolClass} · ${group.session.courseLabel}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(if (group.complete) "Série terminée" else "Chrono : ${TimeFormat.duration(model.elapsedMs / 100 * 100)}", style = MaterialTheme.typography.titleLarge)
-            Text("${group.runners.count { it.finished(group.session) }} arrivée(s)" +
-                group.runners.count { it.abandoned }.takeIf { it > 0 }?.let { " · $it abandon(s)" }.orEmpty(), style = MaterialTheme.typography.bodySmall)
-        }
+        GroupClock(group) { model.elapsedMs }
         if (model.clockInterrupted && !group.complete) Text("Appareil redémarré : chrono interrompu. Clôturez la série ; les passages sont conservés.", color = MaterialTheme.colorScheme.error)
         if (!group.claimed) {
-            Text("Groupe sauvegardé. La réservation auprès du professeur reste à confirmer.")
-            Button(onClick = model::retryClaim, enabled = !model.networkBusy, modifier = Modifier.fillMaxWidth()) { Text("Réessayer la réservation") }
+            Text("Groupe enregistré · validation à terminer.")
+            Button(onClick = model::retryClaim, enabled = !model.networkBusy, modifier = Modifier.fillMaxWidth()) { Text("Réessayer la validation") }
         } else if (group.startElapsedMs == null && !group.complete) {
-            Button(onClick = model::startRace, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("DÉMARRER LA COURSE") }
-        } else if (!group.complete) Text("Touchez la case du coureur à chacun de ses passages.", style = MaterialTheme.typography.bodySmall)
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val columns = if (maxWidth >= 600.dp) 4 else 2
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                group.runners.chunked(columns).forEach { row ->
-                    Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { runner ->
-                            val closed = runner.closed(group.session)
-                            val laps = runner.laps(group.session)
-                            Card(onClick = { if (closed) runnerDetail = runner.id else model.record(runner.id) },
-                                enabled = closed || (group.claimed && group.startElapsedMs != null && !model.clockInterrupted),
-                                modifier = Modifier.weight(1f).fillMaxHeight(),
-                                colors = CardDefaults.cardColors(containerColor = if (closed) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.primaryContainer)) {
-                                Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.Center) {
-                                    Text(runner.pupil.label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    if (!closed) {
-                                        Text(group.session.passageLabel(runner.rawCumulativeMs.size + 1), style = MaterialTheme.typography.titleSmall)
-                                        laps.lastOrNull()?.let { lap ->
-                                            Text("Tour : ${TimeFormat.duration(lap.durationMs)}", style = MaterialTheme.typography.bodySmall)
-                                            lap.differenceMs?.let { Text("${TimeFormat.difference(it)} / préc.", color = paceColor(lap.paceChange), style = MaterialTheme.typography.labelSmall) }
-                                        }
-                                    } else {
-                                        Text(if (runner.abandoned) "Abandon · non noté" else "Arrivé · ${runner.grade(group.session)?.let(::formatPoints)} / ${formatPoints(group.session.rubric.maxGradeTenths)}", style = MaterialTheme.typography.bodyMedium)
-                                        Text(when {
-                                            runner.syncedRevision == runner.revision -> "Reçu par le professeur"
-                                            runner.abandoned -> "À synchroniser"
-                                            runner.pdfRevision == runner.revision -> "PDF prêt · Bilan"
-                                            runner.id in model.pdfErrors -> "PDF à réessayer"
-                                            else -> "Création du PDF…"
-                                        }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                }
-                            }
-                        }
-                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-            }
+            Button(onClick = model::startRace, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { ActionLabel(R.drawable.ic_play_arrow, "DÉMARRER LA COURSE") }
+        }
+        RunnerGrid(group, model.clockInterrupted, model.pdfErrors.keys, Modifier.weight(1f),
+            onUndo = { if (captured == null && model.canUndo(it.id)) undoRunner = it.id },
+            selectableIds = captured?.eligibleIds, selectedIds = selected) { runner ->
+            if (captured != null) selected = if (runner.id in selected) selected - runner.id else selected + runner.id
+            else if (runner.closed(group.session)) runnerDetail = runner.id else model.record(runner.id)
         }
         if (group.complete) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = model::newGroup, modifier = Modifier.weight(1f)) { Text("Autre groupe") }
-                Button(onClick = model::requestUpload, enabled = !model.networkBusy, modifier = Modifier.weight(1f)) { Text(if (model.networkBusy) "Envoi…" else "Envoyer les bilans") }
+                OutlinedButton(onClick = model::newGroup, modifier = Modifier.weight(1f)) { ActionLabel(R.drawable.ic_groups, "Autre groupe") }
+                Button(onClick = model::requestUpload, enabled = !model.networkBusy, modifier = Modifier.weight(1f)) { ActionLabel(R.drawable.ic_upload, if (model.networkBusy) "Envoi…" else "Envoyer les bilans") }
             }
-        } else TextButton(onClick = { closeRequested = true }, modifier = Modifier.fillMaxWidth()) { Text("Actions professeur · code requis") }
+        } else {
+            if (captured != null) Text("Passage à ${stopwatchTenths(captured.elapsedMs)}", style = MaterialTheme.typography.labelMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { if (captured == null) model.capturePassage() else model.confirmCapture(selected) },
+                    enabled = group.startElapsedMs != null && !model.clockInterrupted && (captured == null || selected.isNotEmpty()),
+                    modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
+                    ActionLabel(if (captured == null) R.drawable.ic_groups else R.drawable.ic_check, if (captured == null) "Passage groupé" else "Valider · ${selected.size}")
+                }
+                TextButton(onClick = { if (captured == null) closeRequested = true else model.dismissCapture() },
+                    modifier = Modifier.widthIn(min = 110.dp).heightIn(min = 56.dp)) {
+                    ActionLabel(if (captured == null) R.drawable.ic_school else R.drawable.ic_close, if (captured == null) "Professeur" else "Annuler")
+                }
+            }
+        }
     }
 }
 
@@ -278,7 +309,7 @@ private fun RunnerDialog(model: SessionViewModel, group: RaceGroup, runner: Runn
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
                     }
                     Button(onClick = { model.correct(runner.id, number, minutes, seconds) }) { Text("Confirmer la correction") }
-                    TextButton(onClick = { editing = null }) { Text("Annuler") }
+                    TextButton(onClick = { editing = null }) { ActionLabel(R.drawable.ic_close, "Annuler") }
                     model.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
                 if (runner.finished(group.session)) {
@@ -287,7 +318,7 @@ private fun RunnerDialog(model: SessionViewModel, group: RaceGroup, runner: Runn
                             val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", model.reportFile(runner))
                             context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
                         } catch (_: ActivityNotFoundException) { localError = "Aucun lecteur PDF installé. Le bilan sera transmis au professeur." }
-                    }) { Text("Ouvrir le PDF") }
+                    }) { ActionLabel(R.drawable.ic_picture_as_pdf, "Ouvrir le PDF") }
                     else TextButton(onClick = model::retryReports) { Text("Réessayer le PDF") }
                 }
                 model.pdfErrors[runner.id]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -297,7 +328,7 @@ private fun RunnerDialog(model: SessionViewModel, group: RaceGroup, runner: Runn
 }
 
 @Composable
-private fun TeacherScreen() {
+private fun TeacherScreen(model: SessionViewModel, settings: TeacherSettingsViewModel, individual: RythmoViewModel) {
     val context = LocalContext.current
     var status by remember { mutableStateOf(TeacherService.status) }
     var addresses by remember { mutableStateOf("") }
@@ -305,22 +336,39 @@ private fun TeacherScreen() {
         while (true) {
             status = TeacherService.status
             addresses = runCatching { NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }
-                .filterIsInstance<Inet4Address>().filter { !it.isLoopbackAddress }.joinToString("\n") { "http://${it.hostAddress}:8765" } }.getOrDefault("")
+                .filterIsInstance<Inet4Address>().filter { !it.isLoopbackAddress }.joinToString("\n") { "https://${it.hostAddress}:8765" } }.getOrDefault("")
             delay(1000)
         }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        TextButton(onClick = settings::leaveSettings) { ActionLabel(R.drawable.ic_lock, "Retour aux élèves · verrouiller") }
+        TextButton(onClick = settings::openIndividual) { Text("Évaluation individuelle · 2000 m") }
+        if (model.raceRunning || individual.raceInProgress) Text("Le démarrage du serveur sera disponible après la course locale.")
+        var serverUrl by remember { mutableStateOf(model.archive.serverUrl) }
+        Text("Associer le professeur", style = MaterialTheme.typography.titleLarge)
+        OutlinedTextField(serverUrl, { serverUrl = it }, label = { Text("Adresse HTTPS") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Button(onClick = { model.inspectServer(serverUrl, settings) }, enabled = !model.networkBusy) { ActionLabel(R.drawable.ic_wifi, "Vérifier ce serveur") }
+        model.candidateServer?.let { (url, pin) ->
+            Text(fr.rythmo.sync.TeacherTls.verificationCode(pin), style = MaterialTheme.typography.titleLarge)
+            Text("Comparez ce code à celui affiché sur le serveur professeur.")
+            Button(onClick = { model.trustServer(settings) }) { ActionLabel(R.drawable.ic_check, "Les codes correspondent") }
+            TextButton(onClick = model::dismissServerCandidate) { ActionLabel(R.drawable.ic_close, "Annuler") }
+        }
+        HorizontalDivider()
         Text("Préparer et collecter", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Cet appareil peut héberger la séance. Connectez les chronométreurs au même Wi-Fi ou au point d’accès de ce téléphone. Internet n’est pas nécessaire.")
-        Button(onClick = { context.startForegroundService(Intent(context, TeacherService::class.java)) }, enabled = !status.running, modifier = Modifier.fillMaxWidth()) { Text(if (status.running) "Serveur actif" else "Démarrer le serveur enseignant") }
+        Button(onClick = { model.startTeacherServer(settings, individual) }, enabled = !status.running && !model.raceRunning && !individual.raceInProgress, modifier = Modifier.fillMaxWidth()) {
+            if (status.running) ServerIndicator() else ActionLabel(R.drawable.ic_play_arrow, "Démarrer le serveur enseignant")
+        }
         if (status.running) {
+            Text("Vérification : ${status.verificationCode}")
             Text("Code d’association : ${status.pairingCode}", style = MaterialTheme.typography.titleLarge)
             Text(addresses.ifEmpty { "Activez le Wi-Fi ou le point d’accès pour connecter d’autres appareils." })
-            Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://127.0.0.1:8765/#${status.adminKey}"))) }, modifier = Modifier.fillMaxWidth()) { Text("Ouvrir classes, barèmes et résultats") }
-            OutlinedButton(onClick = { context.stopService(Intent(context, TeacherService::class.java)) }, modifier = Modifier.fillMaxWidth()) { Text("Arrêter le serveur") }
+            Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://127.0.0.1:8767/#${status.adminKey}"))) }, modifier = Modifier.fillMaxWidth()) { Text("Ouvrir classes, barèmes et résultats") }
+            OutlinedButton(onClick = { model.stopTeacherServer(settings) }, modifier = Modifier.fillMaxWidth()) { ActionLabel(R.drawable.ic_stop, "Arrêter le serveur") }
         }
         status.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }) { Text("Réglages Wi-Fi / point d’accès") }
+        TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }) { ActionLabel(R.drawable.ic_wifi, "Réglages Wi-Fi / point d’accès") }
         Text("Vous pouvez aussi utiliser le serveur PC. Le téléphone et le PC conservent chacun leurs propres séances : utilisez le même serveur au début et à la fin du cours.", style = MaterialTheme.typography.bodyMedium)
     }
 }

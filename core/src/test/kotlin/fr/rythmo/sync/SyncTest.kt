@@ -104,13 +104,20 @@ class SyncTest {
         assertEquals("damaged", path.readText())
     }
 
-    @Test fun `http synchronization downloads claims uploads and rejects a wrong pairing code`() {
+    @Test fun `https synchronization downloads claims uploads and rejects a wrong pairing code`() {
         val store = TeacherStore(temp.newFolder())
-        val server = TeacherServer(store, 0, "127.0.0.1")
+        val identity = JvmTeacherIdentity.load(temp.newFolder())
+        assertEquals(identity.fingerprint, TeacherTls.fingerprint(identity.certificate))
+        val server = TeacherServer(store, identity, 0, "127.0.0.1")
+        val admin = TeacherServer(store, identity, 0, "127.0.0.1", localAdmin = true)
+        admin.start(5000, true)
         server.start(5000, true)
         try {
-            val endpoint = "http://127.0.0.1:${server.listeningPort}"
-            val client = SyncClient(endpoint, store.state.pairingCode)
+            val endpoint = "https://127.0.0.1:${server.listeningPort}"
+            assertEquals(identity.fingerprint, TeacherTls.inspect(endpoint))
+            assertThrows(Exception::class.java) { SyncClient(endpoint, store.state.pairingCode, "0".repeat(64)).download("device", "Test") }
+            assertThrows(IllegalArgumentException::class.java) { SyncClient(endpoint.replace("https:", "http:"), "code", identity.fingerprint).download("device", "Test") }
+            val client = SyncClient(endpoint, store.state.pairingCode, identity.fingerprint)
             val session = client.download("device", "Tablette de test").session
             val claim = GroupClaim(session.id, newId(), "device", "Tablette de test", session.pupils.take(2).map { it.id })
             assertEquals(claim, client.claim(claim))
@@ -120,11 +127,14 @@ class SyncTest {
             assertThrows(IllegalStateException::class.java) { client.upload(value, "000000") }
             assertEquals(client.upload(value, store.state.teacherCode), client.upload(value, store.state.teacherCode))
             assertEquals(1, store.state.results.size)
-            assertThrows(IllegalStateException::class.java) { SyncClient(endpoint, "wrong").download("device", "Test") }
-            val html = URL(endpoint).readText()
+            assertThrows(IllegalStateException::class.java) { SyncClient(endpoint, "wrong", identity.fingerprint).download("device", "Test") }
+            val adminEndpoint = "http://127.0.0.1:${admin.listeningPort}"
+            val html = URL(adminEndpoint).readText()
+            val denied = TeacherTls.connection(endpoint, "/admin/state", identity.fingerprint)
+            assertEquals(404, denied.responseCode); denied.disconnect()
             assertTrue(html.contains("Rythmo"))
-            val req = URL("$endpoint/admin/state").openConnection() as HttpURLConnection
+            val req = URL("$adminEndpoint/admin/state").openConnection() as HttpURLConnection
             assertEquals(401, req.responseCode); req.disconnect()
-        } finally { server.stop() }
+        } finally { server.stop(); admin.stop() }
     }
 }
