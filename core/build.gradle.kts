@@ -8,7 +8,7 @@ plugins {
 }
 kotlin { jvmToolchain(17) }
 dependencies {
-    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     api("org.nanohttpd:nanohttpd:2.3.1")
     testImplementation("junit:junit:4.13.2")
 }
