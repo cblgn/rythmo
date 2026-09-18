@@ -12,6 +12,12 @@ Les anciennes tables de barème ne sont pas simplement supprimées du dernier
 commit : elles ne doivent apparaître dans **aucun commit public**. L'historique
 privé antérieur reste dans une archive privée distincte.
 
+Pour travailler sur ce nouvel historique, repartir d'un **nouveau clone** du
+dépôt public dans un autre dossier. Ne pas pousser une ancienne branche, tag,
+ni faire de push miroir depuis l'ancien clone : cela pourrait republier les
+objets privés. Conserver l'ancien dossier pour ses outils et données locales ;
+ne jamais les copier avec `.git/` dans le nouveau clone.
+
 Sont exclus : classeurs Excel, anciennes extractions JSON, analyse du classeur,
 `server-data/`, `local-data/`, PDF élèves, configurations locales, `.env`, clés et
 outils téléchargés. Les identités de démonstration sont inventées. Les exemples
