@@ -6,11 +6,11 @@ buildscript {
     dependencies {
         // Security fixes for AGP's transitive build tools, not app dependencies.
         constraints {
-            add("classpath", "org.apache.commons:commons-lang3:3.18.0")
+            add("classpath", "org.apache.commons:commons-lang3:3.20.0")
             add("classpath", "org.apache.httpcomponents:httpclient:4.5.14")
-            add("classpath", "org.bitbucket.b_c:jose4j:0.9.6")
-            add("classpath", "org.bouncycastle:bcpkix-jdk18on:1.84")
-            add("classpath", "org.bouncycastle:bcprov-jdk18on:1.84")
+            add("classpath", "org.bitbucket.b_c:jose4j:0.9.7")
+            add("classpath", "org.bouncycastle:bcpkix-jdk18on:1.86")
+            add("classpath", "org.bouncycastle:bcprov-jdk18on:1.86")
             add("classpath", "org.jdom:jdom2:2.0.6.1")
         }
     }
@@ -32,11 +32,11 @@ allprojects {
     }
     dependencies {
         constraints {
-            add(toolSecurity.name, "org.apache.commons:commons-lang3:3.18.0")
+            add(toolSecurity.name, "org.apache.commons:commons-lang3:3.20.0")
             add(toolSecurity.name, "org.apache.httpcomponents:httpclient:4.5.14")
-            add(toolSecurity.name, "org.bitbucket.b_c:jose4j:0.9.6")
-            add(toolSecurity.name, "org.bouncycastle:bcpkix-jdk18on:1.84")
-            add(toolSecurity.name, "org.bouncycastle:bcprov-jdk18on:1.84")
+            add(toolSecurity.name, "org.bitbucket.b_c:jose4j:0.9.7")
+            add(toolSecurity.name, "org.bouncycastle:bcpkix-jdk18on:1.86")
+            add(toolSecurity.name, "org.bouncycastle:bcprov-jdk18on:1.86")
             add(toolSecurity.name, "org.jdom:jdom2:2.0.6.1")
         }
     }
