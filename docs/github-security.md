@@ -12,6 +12,12 @@ Les anciennes tables de barème ne sont pas simplement supprimées du dernier
 commit : elles ne doivent apparaître dans **aucun commit public**. L'historique
 privé antérieur reste dans une archive privée distincte.
 
+Pour travailler sur ce nouvel historique, repartir d'un **nouveau clone** du
+dépôt public dans un autre dossier. Ne pas pousser une ancienne branche, tag,
+ni faire de push miroir depuis l'ancien clone : cela pourrait republier les
+objets privés. Conserver l'ancien dossier pour ses outils et données locales ;
+ne jamais les copier avec `.git/` dans le nouveau clone.
+
 Sont exclus : classeurs Excel, anciennes extractions JSON, analyse du classeur,
 `server-data/`, `local-data/`, PDF élèves, configurations locales, `.env`, clés et
 outils téléchargés. Les identités de démonstration sont inventées. Les exemples
@@ -94,11 +100,21 @@ Activer `DEPENDABOT_AUTOMERGE=true` seulement après vérification du ruleset.
 ## Audit initial et entretien
 
 L'audit initial du 18 septembre 2026 révélait 51 alertes dans l'ancien outillage.
-La mise à niveau vers AGP 9.4.1, Gradle 9.7.1 et Kotlin 2.4.20, complétée par six
+La mise à niveau vers AGP 9.4.1, Gradle 9.7.1 et le plugin Kotlin 2.4.20, complétée par six
 contraintes minimales de versions sur des bibliothèques d'outillage, a supprimé
-les vulnérabilités trouvées par OSV : 272 versions résolues, zéro alerte lors du
-contrôle local. Ces contraintes ne rajoutent pas de bibliothèques à l'application.
+les vulnérabilités trouvées par OSV dans le graphe résolu complet. Ces contraintes ne rajoutent pas de bibliothèques à l'application.
 Les tests JVM, Android Lint et le build debug passent après ces changements.
+
+Le plugin Gradle Kotlin reste en 2.4.20, qui corrige
+[GHSA-r937-wjx7-w2jp](https://osv.dev/vulnerability/GHSA-r937-wjx7-w2jp).
+CodeQL stable 2.27.0 refuse encore le compilateur 2.4.20 ; le
+[problème amont](https://github.com/github/codeql/issues/22381) annonce sa prise
+en charge dans 2.27.1. Temporairement, `rythmo.kotlinCompilerVersion=2.4.10`
+sélectionne le compilateur et ses plugins via l'API `compilerVersion` de Kotlin
+(expérimentale), pour **tous** les builds, locaux comme CI. Les plugins Gradle
+corrigés restent en 2.4.20. Aucune alerte OSV n'est ignorée. Après validation d'un
+CodeQL stable compatible, aligner le compilateur sur 2.4.20 et retirer ce réglage
+temporaire des trois modules et des classpaths de plugins du compilateur.
 
 Ce résultat décrit un instant donné ; une nouvelle alerte doit faire l'objet d'un
 correctif. Consulter [les alertes](https://github.com/cblgn/rythmo/security/dependabot)

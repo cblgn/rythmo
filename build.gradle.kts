@@ -29,7 +29,6 @@ allprojects {
     val toolSecurity = configurations.create("buildToolSecurityConstraints") {
         isCanBeResolved = false
         isCanBeConsumed = false
-        isVisible = false
     }
     dependencies {
         constraints {
@@ -43,5 +42,11 @@ allprojects {
     }
     configurations.configureEach {
         if (isCanBeResolved) extendsFrom(toolSecurity)
+        // Compiler plugins must match the compiler selected in each module.
+        if (name.startsWith("kotlinCompilerPluginClasspath")) {
+            resolutionStrategy.eachDependency {
+                if (requested.group == "org.jetbrains.kotlin") useVersion(providers.gradleProperty("rythmo.kotlinCompilerVersion").get())
+            }
+        }
     }
 }
