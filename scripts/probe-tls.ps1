@@ -4,6 +4,7 @@ if ($Fingerprint -notmatch '^[0-9a-f]{64}$') { exit 1 }
 Add-Type -TypeDefinition @'
 using System;
 using System.IO;
+using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -12,8 +13,9 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 public static class RythmoTlsProbe {
     public static bool Check(string address, string fingerprint) {
-        using (var tcp = new TcpClient()) {
-            var pending = tcp.ConnectAsync(address, 8765);
+        var target = IPAddress.Parse(address);
+        using (var tcp = new TcpClient(target.AddressFamily)) {
+            var pending = tcp.ConnectAsync(target, 8765);
             if (!pending.Wait(3000)) return false;
             tcp.ReceiveTimeout = 3000; tcp.SendTimeout = 3000;
             using (var tls = new SslStream(tcp.GetStream(), false, (sender, cert, chain, errors) => {
@@ -25,7 +27,7 @@ public static class RythmoTlsProbe {
                 }
             })) {
                 tls.ReadTimeout = 3000; tls.WriteTimeout = 3000;
-                tls.AuthenticateAsClient("Rythmo local", null, SslProtocols.Tls12, false);
+                tls.AuthenticateAsClient("localhost", null, SslProtocols.Tls12, false);
                 var request = Encoding.ASCII.GetBytes("GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
                 tls.Write(request, 0, request.Length);
                 using (var reader = new StreamReader(tls)) {
