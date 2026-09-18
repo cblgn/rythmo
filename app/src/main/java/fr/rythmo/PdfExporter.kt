@@ -96,6 +96,11 @@ object PdfExporter {
             text("La progression et l’irrégularité excluent le dernier segment s’il est plus court.", size = 10f); y += 18f
             text("Une correction par passage. Les calculs utilisent les temps corrigés.", size = 10f); y += 18f
             text("La régularité n’intervient pas dans la note de démonstration.", size = 10f)
+            report.cancelledPassages.forEach { entry ->
+                y += 18f
+                if (y > 780f) nextPage()
+                text(entry, size = 9f)
+            }
             document.finishPage(page)
             FileOutputStream(pending).use { document.writeTo(it); it.fd.sync() }
             Files.move(pending.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)

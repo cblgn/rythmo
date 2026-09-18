@@ -1,6 +1,7 @@
 package fr.rythmo
 
 import android.app.Application
+import android.content.Intent
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.runtime.*
@@ -11,6 +12,8 @@ import fr.rythmo.domain.SplitValidation
 import fr.rythmo.session.*
 import fr.rythmo.sync.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
@@ -18,15 +21,21 @@ import java.time.LocalDateTime
 import java.util.Base64
 
 enum class TeacherAction { CLOSE_GROUP, ABANDON_RUNNER, UPLOAD }
+data class CapturedPassage(val groupId: String, val elapsedMs: Long, val eligibleIds: Set<String>)
+
 data class TeacherRequest(val action: TeacherAction, val runnerId: String? = null)
 
 class SessionViewModel(application: Application) : AndroidViewModel(application) {
     private val directory = File(application.filesDir, "sessions")
     private val storage = JsonFile(File(directory, "client.json"), ClientArchive.serializer()) { ClientArchive() }
     private val mutex = Mutex()
+    private val passageGuard = PassageGuard()
+    private val pdfSlots = Semaphore(2)
+    var capturedPassage by mutableStateOf<CapturedPassage?>(null); private set
     private val generating = mutableSetOf<String>()
     private val bootCount = Settings.Global.getInt(application.contentResolver, Settings.Global.BOOT_COUNT, -1)
     var archive by mutableStateOf(ClientArchive()); private set
+    var candidateServer by mutableStateOf<Pair<String, String>?>(null); private set
     var ready by mutableStateOf(false); private set
     var loadError by mutableStateOf<String?>(null); private set
     var message by mutableStateOf<String?>(null); private set
@@ -43,7 +52,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     init {
         viewModelScope.launch {
             try {
-                archive = withContext(Dispatchers.IO) { storage.read().also(storage::write) }
+                archive = withContext(Dispatchers.IO) { storage.read().let { it.copy(serverUrl = it.serverUrl.replaceFirst("http://", "https://")) }.also(storage::write) }
                 ready = true
                 retryReports()
             } catch (e: Exception) { loadError = "Sauvegarde illisible. Les fichiers ont été conservés : ${e.message}" }
@@ -76,7 +85,16 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
     }
     fun dismissMessage() { message = null }
-    fun chooseRole(role: AppRole) = action { save(archive.copy(role = role)) }
+    val raceRunning: Boolean get() = archive.activeGroup?.let { it.startElapsedMs != null && !it.complete } == true
+    fun startTeacherServer(settings: TeacherSettingsViewModel, individual: RythmoViewModel) {
+        settings.requireUnlocked()
+        check(!raceRunning && !individual.raceInProgress) { "Terminez la course locale avant de démarrer le serveur." }
+        getApplication<Application>().startForegroundService(Intent(getApplication(), TeacherService::class.java))
+    }
+    fun stopTeacherServer(settings: TeacherSettingsViewModel) {
+        settings.requireUnlocked()
+        getApplication<Application>().stopService(Intent(getApplication(), TeacherService::class.java))
+    }
     fun connection(url: String, code: String, name: String) = action {
         require(name.isNotBlank() && name.length <= 100)
         save(archive.copy(serverUrl = url.trim().trimEnd('/'), pairingCode = code.trim(), deviceName = name.trim()))
@@ -91,7 +109,24 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             finally { networkBusy = false }
         }
     }
-    private fun client() = SyncClient(archive.serverUrl, archive.pairingCode)
+    fun inspectServer(url: String, settings: TeacherSettingsViewModel) = action {
+        settings.requireUnlocked()
+        networkBusy = true
+        try {
+            val endpoint = TeacherTls.endpoint(url).toString()
+            candidateServer = endpoint to withContext(Dispatchers.IO) { TeacherTls.inspect(endpoint) }
+        } finally { networkBusy = false }
+    }
+    fun trustServer(settings: TeacherSettingsViewModel) = action {
+        settings.requireUnlocked()
+        val (url, pin) = requireNotNull(candidateServer)
+        save(archive.copy(serverUrl = url, trustedServers = archive.trustedServers + (url to pin)))
+        candidateServer = null
+        message = "Serveur associé."
+    }
+    fun dismissServerCandidate() { candidateServer = null }
+    private fun client() = SyncClient(archive.serverUrl, archive.pairingCode,
+        requireNotNull(archive.trustedServers[archive.serverUrl]) { "Associez ce serveur dans l’accès professeur." })
     fun download() = action {
         networkBusy = true
         try {
@@ -136,14 +171,49 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     fun record(runnerId: String) {
         val group = archive.activeGroup ?: return
         val start = group.startElapsedMs ?: return
-        val elapsed = SystemClock.elapsedRealtime() - start
+        if (capturedPassage != null) return
+        recordPassages(group.id, setOf(runnerId), SystemClock.elapsedRealtime() - start)
+    }
+    fun capturePassage() {
+        val group = archive.activeGroup ?: return
+        val start = group.startElapsedMs ?: return
+        if (group.complete || clockInterrupted || capturedPassage != null) return
+        capturedPassage = CapturedPassage(group.id, SystemClock.elapsedRealtime() - start,
+            group.runners.filterNot { it.closed(group.session) }.map { it.id }.toSet())
+    }
+    fun dismissCapture() { capturedPassage = null }
+    fun confirmCapture(ids: Set<String>) {
+        val capture = capturedPassage ?: return
+        if (ids.isEmpty() || !capture.eligibleIds.containsAll(ids)) return
+        if (recordPassages(capture.groupId, ids, capture.elapsedMs)) capturedPassage = null
+    }
+    private fun recordPassages(groupId: String, ids: Set<String>, elapsed: Long): Boolean {
+        if (!passageGuard.begin(ids, SystemClock.elapsedRealtime())) return false
         action {
-            require(!clockInterrupted) { "Le téléphone a redémarré. Clôturez la série ; les passages enregistrés sont conservés." }
-            val current = archive.groups.first { it.id == group.id }
-            val next = current.record(runnerId, elapsed)
-            save(archive.replace(next))
-            if (next.runners.first { it.id == runnerId }.finished(next.session)) generateReport(next.id, runnerId)
+            try {
+                require(!clockInterrupted) { "Le téléphone a redémarré. Clôturez la série ; les passages sont conservés." }
+                require(archive.activeGroupId == groupId)
+                val current = archive.groups.first { it.id == groupId }
+                val next = current.recordBatch(ids, elapsed)
+                save(archive.replace(next))
+                passageGuard.saved(ids, SystemClock.elapsedRealtime())
+                next.runners.filter { it.id in ids && it.finished(next.session) }.forEach { generateReport(next.id, it.id) }
+            } finally { passageGuard.finish(ids) }
         }
+        return true
+    }
+    fun canUndo(runnerId: String): Boolean {
+        val runner = archive.activeGroup?.runners?.find { it.id == runnerId } ?: return false
+        return passageGuard.canUndo(runnerId, SystemClock.elapsedRealtime()) && runner.rawCumulativeMs.isNotEmpty() &&
+            !runner.abandoned && runner.corrections.isEmpty() && runner.syncedRevision == 0
+    }
+    fun undoPassage(runnerId: String) = action {
+        require(canUndo(runnerId)) { "Ce passage ne peut plus être annulé (délai de 15 secondes)." }
+        val group = requireNotNull(archive.activeGroup)
+        val runner = group.runners.first { it.id == runnerId }.cancelLastPassage()
+        save(archive.replace(group.copy(runners = group.runners.map { if (it.id == runnerId) runner else it })))
+        passageGuard.consumeUndo(runnerId)
+        pdfErrors = pdfErrors - runnerId
     }
     fun requestUpload() { teacherError = null; teacherRequest = TeacherRequest(TeacherAction.UPLOAD) }
     fun requestCloseGroup() { teacherError = null; teacherRequest = TeacherRequest(TeacherAction.CLOSE_GROUP) }
@@ -217,7 +287,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         if (!generating.add(key)) return
         viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) { PdfExporter.export(getApplication(), group.report(runner), reportFile(runner)) }
+                pdfSlots.withPermit { withContext(Dispatchers.IO) { PdfExporter.export(getApplication(), group.report(runner), reportFile(runner)) } }
                 mutex.withLock {
                     val current = archive.groups.first { it.id == groupId }
                     save(archive.replace(current.copy(runners = current.runners.map {

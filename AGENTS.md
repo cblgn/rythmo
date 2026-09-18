@@ -290,11 +290,11 @@ classeur ne font pas partie du projet publiable, y compris dans l'historique Git
 
 Serveur enseignant PC : `./scripts/server.sh`. Ouvrir le lien affiché (avec sa clé enseignant) dans le navigateur du PC. Les 8 classes fictives sont disponibles immédiatement ; publier une nouvelle séance fige son épreuve, ses élèves et son barème. Le stockage durable reste dans `server-data/` (ignoré par Git).
 
-Pour tester PC ↔ Xiaomi par USB : lancer le serveur, puis `./scripts/connect-server.sh`. Dans le mode Chronométreur, utiliser `http://127.0.0.1:8765` et le code d’association affiché par le serveur. Récupérer la séance, sélectionner au maximum 8 élèves et préparer le groupe pendant la connexion ; la course fonctionne ensuite sans réseau. Chaque arrivée produit son PDF. En fin de série, « Envoyer les bilans » attend la confirmation du serveur et conserve les copies locales. Le tunnel USB ne valide pas la découverte Wi-Fi.
+Pour tester PC ↔ Xiaomi par USB : lancer le serveur, puis `./scripts/connect-server.sh`. Dans le mode Chronométreur, utiliser `https://127.0.0.1:8765` et le code d’association affiché par le serveur. Récupérer la séance, sélectionner au maximum 8 élèves et préparer le groupe pendant la connexion ; la course fonctionne ensuite sans réseau. Chaque arrivée produit son PDF. En fin de série, « Envoyer les bilans » attend la confirmation du serveur et conserve les copies locales. Le tunnel USB ne valide pas la découverte Wi-Fi.
 
 Si le serveur WSL est accessible seulement via IPv6 côté Windows, le script utilise automatiquement `scripts/usb-relay.ps1`, un relais local sans droits administrateur. Garder ce terminal ouvert pendant la synchronisation ; `Ctrl+C` arrête le relais. Le script vérifie que le serveur répond avant de configurer ce relais.
 
-Sur un LAN, le serveur écoute en TCP 8765 et répond à la découverte locale en UDP 8766 ; « Rechercher le professeur » trouve les serveurs joignables sur le même réseau. Avec WSL2, l’accès LAN nécessite le réseau miroir ou une configuration réseau Windows adaptée. L’adresse manuelle reste disponible. Aucun port n’est ouvert automatiquement dans le pare-feu.
+Sur un LAN, le serveur écoute en HTTPS/TLS sur TCP 8765 et répond à la découverte locale en UDP 8766 ; « Rechercher le professeur » trouve les serveurs joignables sur le même réseau. Avec WSL2, l’accès LAN nécessite le réseau miroir ou une configuration réseau Windows adaptée. L’adresse manuelle reste disponible. Aucun port n’est ouvert automatiquement dans le pare-feu.
 
 Le mode Enseignant Android peut héberger le même serveur en service au premier plan. Activer le Wi-Fi ou le point d’accès dans les réglages Android, puis démarrer le serveur. L’interface enseignant locale s’ouvre dans le navigateur. Désactiver préalablement le tunnel USB (`./scripts/connect-server.sh --disconnect`) pour libérer le port 8765 sur le téléphone. Les données des serveurs PC et Android sont distinctes ; une séance doit être récupérée et renvoyée au même serveur.
 
@@ -350,3 +350,13 @@ A task is complete when:
 * the project compiles when the environment allows it,
 * there are no obvious regressions,
 * the final response briefly explains what changed and any remaining limitation.
+
+## Ajustements approuvés du chrono et de la sécurité
+
+Le chrono commun est centré ; cartes compactes avec prénom + initiale (développer les conflits), dernier cumul et avancement. Après un passage, montrer tour/écart pendant quatre secondes. Les couleurs indiquent l’allure par rapport au tour précédent (tolérance ±1 s), pas le nombre de passages. Le menu ⋮ donne accès au professeur ; aucun slogan.
+
+Passage groupé : capturer l’instant, sélectionner, sauvegarder le lot atomiquement. Bloquer les doubles appuis par élève pendant l’écriture puis une seconde. Appui long d’une seconde + confirmation pour annuler le dernier passage dans les quinze secondes suivant la sauvegarde, y compris une arrivée non corrigée et non envoyée. Conserver l’annulation, les temps initiaux et les anciens PDF ; une relance complète ferme la fenêtre d’annulation.
+
+Protocole 3 : synchronisation HTTPS uniquement sur 8765, console professeur uniquement en boucle locale sur 8767. L’association par PIN local et comparaison du code de vérification épingle le certificat complet ; aucun repli HTTP. Les clés PC restent dans server-data/tls/ ; les clés Android dans Android Keystore. Ne jamais versionner ces fichiers.
+
+Identité choisie : design 1 « Terre battue », orange brûlé et ivoire, piste à trois couloirs verticale, point blanc conservé et mot Rythmo en italique comme le design 3. Le bleu reste réservé à l’allure équivalente, indépendamment de la couleur principale du thème.

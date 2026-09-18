@@ -8,6 +8,10 @@ local.properties
 *.iml
 *.jks
 *.keystore
+*.p12
+*.pfx
+*.key
+tls-password
 .DS_Store
 .tools/
 server-data/
@@ -29,3 +33,4 @@ __pycache__/
 /data/rubrics/*.draft.json
 /scripts/extract-rubric.py
 .scannerwork/
+.coverage

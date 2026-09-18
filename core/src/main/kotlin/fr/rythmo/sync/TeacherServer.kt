@@ -4,8 +4,15 @@ import fi.iki.elonen.NanoHTTPD
 import fr.rythmo.session.*
 import kotlinx.serialization.encodeToString
 import java.util.Base64
+import kotlinx.serialization.json.*
 
-class TeacherServer(val store: TeacherStore, port: Int = 8765, host: String = "0.0.0.0") : NanoHTTPD(host, port) {
+class TeacherServer(val store: TeacherStore, val identity: TeacherTls, port: Int = 8765,
+    host: String = "0.0.0.0", private val localAdmin: Boolean = false) : NanoHTTPD(host, port) {
+    init {
+        if (localAdmin) require(java.net.InetAddress.getByName(host).isLoopbackAddress)
+        else makeSecure(identity.context.serverSocketFactory,
+            identity.context.supportedSSLParameters.protocols.filter { it == "TLSv1.3" || it == "TLSv1.2" }.toTypedArray())
+    }
     override fun serve(request: IHTTPSession): Response = try {
         route(request).apply {
             addHeader("Cache-Control", "no-store")
@@ -17,6 +24,9 @@ class TeacherServer(val store: TeacherStore, port: Int = 8765, host: String = "0
     }
 
     private fun route(r: IHTTPSession): Response {
+        val adminRoute = r.uri == "/" || r.uri == "/admin.js" || r.uri.startsWith("/admin/")
+        if (adminRoute != localAdmin && r.uri != "/health")
+            return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Adresse inconnue.")
         if (r.method == Method.GET && r.uri in listOf("/", "/admin.js")) {
             val path = if (r.uri == "/") "/teacher/index.html" else "/teacher/admin.js"
             val content = checkNotNull(javaClass.getResourceAsStream(path)).bufferedReader().use { it.readText() }
@@ -32,9 +42,9 @@ class TeacherServer(val store: TeacherStore, port: Int = 8765, host: String = "0
             return newFixedLengthResponse(Response.Status.UNAUTHORIZED, "text/plain; charset=utf-8", "Code professeur incorrect.")
         }
         return when {
-            r.method == Method.GET && r.uri == "/admin/state" -> json(sessionJson.encodeToString(store.state.let { state ->
+            r.method == Method.GET && r.uri == "/admin/state" -> json(JsonObject(sessionJson.encodeToJsonElement(store.state.let { state ->
                 state.copy(results = state.results.map { it.copy(upload = it.upload.copy(pdfBase64 = it.upload.pdfBase64?.let { "available" })) })
-            }))
+            }).jsonObject + ("tlsVerificationCode" to JsonPrimitive(identity.verificationCode))).toString())
             r.method == Method.POST && r.uri == "/admin/session" -> {
                 val session = sessionJson.decodeFromString<SessionConfig>(body(r))
                 store.publish(session)
