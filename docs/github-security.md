@@ -32,7 +32,7 @@ reconnaître toutes les données personnelles : vérifier le contenu des PR.
 Chaque push sur `main` et chaque PR lancent les vérifications concernées :
 
 - `Android and JVM` : validation du wrapper Gradle, `test`, `lintDebug`,
-  `assembleDebug` et `:server:installDist` avec JDK 17, SDK 35 et Build Tools 36.
+  `assembleDebug` et `:server:installDist` avec JDK 17, SDK 37 et Build Tools 36.
 - `Secrets and workflow checks` : Gitleaks, fichiers interdits, Actionlint,
   syntaxe des scripts et tests des outils CI.
 - `Resolve dependencies` : graphe Gradle complet, incluant bibliothèques

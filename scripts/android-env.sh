@@ -42,7 +42,7 @@ ensure_java() {
 }
 
 linux_sdk_ready() {
-    [[ -f "$1/platforms/android-35/android.jar" && -x "$1/build-tools/36.0.0/aapt" && ! -f "$1/build-tools/36.0.0/aapt.exe" ]]
+    [[ -f "$1/platforms/android-37.0/android.jar" && -x "$1/build-tools/36.0.0/aapt" && ! -f "$1/build-tools/36.0.0/aapt.exe" ]]
 }
 
 ensure_linux_sdk() {
@@ -68,10 +68,10 @@ ensure_linux_sdk() {
             fi
             mv "$staging/cmdline-tools" "$sdk/cmdline-tools/latest"
         fi
-        echo "[phone] Installation des composants Android 35 et acceptation des licences SDK..."
+        echo "[phone] Installation des composants Android 37 et acceptation des licences SDK..."
         # Ignore SIGPIPE from yes after sdkmanager has consumed the licence answers.
         if ! (set +o pipefail; yes 2>/dev/null | "$sdk/cmdline-tools/latest/bin/sdkmanager" \
-            --sdk_root="$sdk" 'platforms;android-35' 'build-tools;36.0.0' 'platform-tools'); then
+            --sdk_root="$sdk" 'platforms;android-37.0' 'build-tools;36.0.0' 'platform-tools'); then
             die "installation du SDK Linux impossible"
         fi
         linux_sdk_ready "$sdk" || die "le SDK Linux est incomplet après installation"

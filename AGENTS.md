@@ -300,7 +300,7 @@ Le mode Enseignant Android peut héberger le même serveur en service au premier
 
 Depuis WSL, avec le téléphone Android connecté et le débogage USB autorisé :
 
-La première exécution prépare automatiquement les outils manquants, sans `sudo` : JDK 17 Linux, SDK Android 35 Linux et Build Tools 36 dans `.tools/`. Elle nécessite Internet, `curl` et `unzip`, et accepte les licences des composants SDK installés. Les exécutions suivantes réutilisent ces outils. La compilation WSL utilise un SDK **Linux** ; seul ADB utilise les outils **Windows** pour accéder au téléphone USB.
+La première exécution prépare automatiquement les outils manquants, sans `sudo` : JDK 17 Linux, SDK Android 37 Linux et Build Tools 36 dans `.tools/`. Elle nécessite Internet, `curl` et `unzip`, et accepte les licences des composants SDK installés. Les exécutions suivantes réutilisent ces outils. La compilation WSL utilise un SDK **Linux** ; seul ADB utilise les outils **Windows** pour accéder au téléphone USB.
 
 ```bash
 ./scripts/phone.sh
