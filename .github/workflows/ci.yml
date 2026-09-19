@@ -32,9 +32,9 @@ jobs:
           cache-provider: basic
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Android SDK
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;36.0.0"'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"'
       - name: Tests, lint, APK and teacher server
-        run: ./gradlew --no-daemon test lintDebug assembleDebug :server:installDist :app:createDebugUnitTestCoverageReport :core:jacocoTestReport
+        run: ./gradlew --no-daemon test lintDebug assembleDebug bundleRelease :server:installDist :app:createDebugUnitTestCoverageReport :core:jacocoTestReport
       - name: Test and lint reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

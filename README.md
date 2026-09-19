@@ -83,11 +83,13 @@ analyse les secrets, le code et les dépendances. Voir
 ./scripts/logs.sh
 ```
 
+La compilation utilise le SDK 37, avec une cible Android 16 (API 36) et un minimum Android 8 (API 26). Les appareils anciens restent compatibles. `bundleRelease` produit un AAB non signé ; la signature et la publication Play Store se préparent séparément.
+
 Pour les vérifications seules, après préparation de l’environnement Java/SDK par les scripts :
 
 ```bash
 ./gradlew test
-./gradlew assembleDebug
+./gradlew assembleDebug bundleRelease
 ./gradlew :server:installDist
 ```
 
