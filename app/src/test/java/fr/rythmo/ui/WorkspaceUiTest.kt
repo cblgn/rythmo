@@ -86,4 +86,54 @@ class WorkspaceUiTest {
   compose.runOnIdle { m.dismissMessage() };compose.onNodeWithText("Retour aux élèves").performClick();compose.waitForIdle();assertFalse(s.unlocked)
   compose.onNodeWithText("Récupérer la séance").assertExists()
  }
+ private fun enterTeacher(s:TeacherSettingsViewModel) {
+  compose.onNodeWithContentDescription("Menu").performClick();compose.onNodeWithText("Accès professeur").performClick()
+  compose.onNodeWithText("PIN professeur").performTextInput("123456");compose.onNodeWithText("Déverrouiller").performClick();await { s.unlocked }
+ }
+ @Test fun `running teacher console routes to reports and notification stop remains confirmed`() {
+  TeacherService.status=TeacherStatus(true,"fictional-admin","fictional-pair",verificationCode="1234")
+  val (m,s)=launch(ClientArchive(transport="https"));enterTeacher(s)
+  compose.onNodeWithContentDescription("Serveur enseignant en ligne").assertExists()
+  compose.onNodeWithText("Appareils").performClick();compose.onNodeWithText("Voir les appareils connus").performClick()
+  assertEquals("http://127.0.0.1:8767/?tab=devices#fictional-admin",shadowOf(app).nextStartedActivity.dataString)
+  compose.onNodeWithText("Bilans").performClick();compose.onNodeWithText("Suivre les bilans reçus").performClick()
+  assertTrue(shadowOf(app).nextStartedActivity.dataString!!.contains("tab=reception"))
+  compose.onNodeWithText("Résultats et PDF").performClick();assertTrue(shadowOf(app).nextStartedActivity.dataString!!.contains("tab=results"))
+  compose.onNodeWithText("Autres options").performScrollTo().performClick()
+  compose.onNodeWithText("Code d’association : fictional-pair").performScrollTo().assertExists()
+  compose.onNodeWithText("Vérification : 1234").assertExists()
+  compose.runOnIdle { s.requestServerStop() }
+  compose.onNodeWithText("Continuer le partage").performClick();assertFalse(s.stopServerRequested)
+  compose.runOnIdle { s.requestServerStop() };compose.onNodeWithText("Arrêter").performClick();assertFalse(s.stopServerRequested)
+  assertEquals(TeacherService::class.java.name,shadowOf(app).nextStoppedService.component!!.className)
+  compose.runOnIdle { m.dismissMessage() }
+ }
+ @Test fun `completed runner detail shows component grades final laps and opens its saved PDF`() {
+  val rubric=AssessmentRubric(schemaVersion=2,name="Fictional",performanceMaxTenths=70,comparisonMaxTenths=10,sourceMaxTenths=70,
+   tables=Sex.entries.associateWith { listOf(PerformanceThreshold(300000,70)) })
+  val session=demoSession().copy(pupils=demoSession().pupils.take(1),distanceMeters=1000,lapCount=2,assessment=rubric)
+  val runner=RunnerRecord(pupil=session.pupils.single(),rawCumulativeMs=listOf(60000,120000),pdfRevision=1)
+  val group=RaceGroup(session=session,runners=listOf(runner),claimed=true,startElapsedMs=0)
+  val (m,_)=launch(ClientArchive(session=session,groups=listOf(group),activeGroupId=group.id,transport="https",teacherAccess=TeacherAccess.fromCode("654321")))
+  compose.onNodeWithText("Série terminée").assertExists()
+  compose.onNodeWithText("${runner.pupil.firstName} ${runner.pupil.lastName.first()}.").performClick()
+  compose.onNodeWithText("Note sur 20 : 20").assertExists()
+  compose.onNodeWithText("Ouvrir le PDF").performClick()
+  assertEquals("application/pdf",shadowOf(app).nextStartedActivity.type)
+  compose.onNodeWithText("Fermer").performClick()
+  compose.onNodeWithText("Envoyer les bilans").performClick();compose.onNodeWithText("Annuler").performClick();assertNull(m.teacherRequest)
+ }
+ @Test fun `interrupted group cannot time and teacher can close it while preserving recorded laps`() {
+  val session=demoSession().copy(pupils=demoSession().pupils.take(1))
+  val runner=RunnerRecord(pupil=session.pupils.single(),rawCumulativeMs=listOf(60000))
+  val group=RaceGroup(session=session,runners=listOf(runner),claimed=true,startElapsedMs=Long.MAX_VALUE)
+  val (m,_)=launch(ClientArchive(session=session,groups=listOf(group),activeGroupId=group.id,transport="https",teacherAccess=TeacherAccess.fromCode("654321")))
+  compose.onNodeWithText("Passage groupé").assertIsNotEnabled()
+  compose.onNodeWithText("Appareil redémarré : chrono interrompu. Clôturez la série ; les passages sont conservés.").assertExists()
+  compose.onAllNodesWithText("Professeur").onLast().performClick();compose.onNodeWithText("Revenir à la course").performClick()
+  compose.onAllNodesWithText("Professeur").onLast().performClick();compose.onNodeWithText("Clôturer et envoyer les bilans").performClick()
+  compose.onNodeWithText("Code professeur · 6 chiffres").performTextInput("654321");compose.onNodeWithText("Confirmer").performClick()
+  await { m.archive.activeGroup!!.complete };assertEquals(listOf(60000L),m.archive.activeGroup!!.runners.single().rawCumulativeMs)
+ }
+
 }

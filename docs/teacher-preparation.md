@@ -77,7 +77,7 @@ Stopping the service removes its foreground notification.
 
 ## Validation
 
-Run JVM tests, `node --test tests/teacher-page.test.cjs`, `lintDebug`, `assembleDebug`
+Run JVM tests, `npm ci --ignore-scripts` then `node --test tests/*.test.cjs`, `lintDebug`, `assembleDebug`
 and `:server:installDist`. Build and configuration caches are local; repeat the same
 Gradle command to confirm `Configuration cache entry reused` without source changes.
 No remote cache or coverage exclusions were added.
@@ -120,3 +120,32 @@ screen coordinates did not reliably target all eight buttons. This is not a meas
 rapid-tap performance benchmark. Queued captures and newer Android permission flows
 still need separate field validation. Local success does not constitute a new GitHub
 CI or Sonar run for these uncommitted changes.
+
+### Automated coverage
+
+The coverage iteration passed 142 JVM/Android tests (52 core, 90 Android), browser
+DOM tests and 18 Python tests, plus lint, APK/AAB and server builds.
+
+Android integration tests use Robolectric and Compose to exercise imports, protected
+teacher actions, local race persistence, grouped passages, reports and Nearby callback
+handling without real radios. JaCoCo instruments Robolectric's sandbox classloader;
+the core report also includes domain code exercised by Android tests. PDF layout tests
+record the drawing commands; native PDF encoding remains covered by device validation.
+The browser tests execute the console scripts in jsdom and report native Node coverage.
+All test fixtures are fictional.
+
+Generate the reports consumed by the main-branch Sonar analysis:
+
+```sh
+./gradlew test :app:createDebugUnitTestCoverageReport :core:jacocoTestReport
+npm ci --ignore-scripts
+mkdir -p build/reports/js
+node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=build/reports/js/lcov.info tests/*.test.cjs
+python3 -m coverage run -m unittest discover -s scripts/tests
+python3 -m coverage xml
+```
+
+Install Python coverage from `scripts/coverage-requirements.txt` in a virtual
+environment first. HTML JVM reports are in `app/build/reports/coverage/test/debug/`
+and `core/build/reports/jacoco/test/html/`. The Quality Gate remains unchanged;
+local coverage is diagnostic and the Sonar result after merging is authoritative.

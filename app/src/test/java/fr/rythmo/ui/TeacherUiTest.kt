@@ -102,4 +102,61 @@ class TeacherUiTest {
         prep.edit(prep.data.draft.copy(total="14"),s);await { !prep.busy }
         assertEquals(130,frozen.maxGradeTenths)
     }
+    @Test fun `draft validation follows edited distance laps and total and blocks publication during a race`() {
+        val s=settings();unlock(s)
+        val prep=keep(TeacherPreparationViewModel(app));await { prep.ready }
+        val cls=prep.classes.first()
+        val existingSessions=AndroidTeacherRepository.get(app).store.state.sessions
+        val table=PerformanceTable(name="Fictional",distanceMeters=1000,sourceMaxTenths=70,
+            tables=Sex.entries.associateWith { listOf(PerformanceThreshold(300000,70)) })
+        prep.importTable(table,s);await { !prep.busy && prep.data.tables.isNotEmpty() }
+        prep.edit(prep.data.draft.copy(classId=cls.id),s);await { !prep.busy }
+        val blocked = androidx.compose.runtime.mutableStateOf(false)
+        compose.setContent { RythmoTheme { Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            TeacherPreparationForm(s,blocked.value,{}, {},prep)
+        } } }
+        compose.onNodeWithText("Nom affiché aux élèves").performTextReplacement("Prof Fiction")
+        compose.onNodeWithText("Titre de la séance").performTextReplacement("Course test")
+        compose.onNodeWithText("Distance (m)").performScrollTo().performTextReplacement("2000")
+        compose.onNodeWithText("Vérifier ma séance").performScrollTo().performClick();await { prep.error!=null }
+        assertNull(prep.preview);assertTrue(prep.error!!.contains("1000"))
+        compose.onNodeWithText("Distance (m)").performScrollTo().performTextReplacement("1000")
+        compose.onNodeWithText("Nombre de tours").performTextReplacement("?")
+        compose.onNodeWithText("Note totale sur").performScrollTo().performTextReplacement("?")
+        compose.onNodeWithText("Vérifier ma séance").performScrollTo().performClick();await { prep.error!=null }
+        assertNull(prep.preview)
+        compose.onNodeWithText("Nombre de tours").performScrollTo().performTextReplacement("6")
+        compose.onNodeWithText("Note totale sur").performScrollTo().performTextReplacement("5")
+        compose.onNodeWithText("Vérifier ma séance").performScrollTo().performClick();await { prep.error!=null }
+        assertNull(prep.preview)
+        compose.onNodeWithText("Note totale sur").performScrollTo().performTextReplacement("12")
+        compose.onNodeWithText("Vérifier ma séance").performScrollTo().performClick();await { prep.preview!=null }
+        assertEquals("Course test",prep.preview!!.title)
+        compose.onNodeWithText("Modifier").performClick();assertNull(prep.preview)
+        compose.runOnIdle { blocked.value=true }
+        compose.onNodeWithText("Vérifier ma séance").assertIsNotEnabled()
+        assertEquals(existingSessions,AndroidTeacherRepository.get(app).store.state.sessions)
+    }
+    @Test fun `roster preview rejects wrong columns then saves the explicitly mapped pupil`() {
+        val s=settings();unlock(s)
+        val prep=keep(TeacherPreparationViewModel(app));await { prep.ready }
+        compose.setContent { RythmoTheme { Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            TeacherPreparationForm(s,false,{}, {},prep)
+        } } }
+        compose.onNodeWithText("Importer une classe").performScrollTo().performClick()
+        val file=File(app.filesDir,"reports/columns.csv").also { it.parentFile!!.mkdirs();it.writeText("Famille;Profil;Identité\nExemple;F;Alice") }
+        prep.readDocument(FileProvider.getUriForFile(app,"${app.packageName}.files",file));await { prep.workbook!=null }
+        compose.onNodeWithText("Nom de la classe").performTextInput("6e Fiction")
+        compose.onNodeWithText("3e").performClick();compose.onNodeWithText("6e").performClick()
+        compose.onNodeWithText("Vérifier l’import").performScrollTo().performClick()
+        compose.onNodeWithText("Enregistrer").assertIsNotEnabled()
+        compose.onNodeWithText("Colonne 2").performScrollTo().performClick();compose.onAllNodesWithText("Colonne 3").onLast().performClick()
+        compose.onAllNodesWithText("Colonne 3").onLast().performScrollTo().performClick();compose.onNodeWithText("Colonne 2").performClick()
+        compose.onNodeWithText("Première ligne d’élèves").performScrollTo().performTextReplacement("2")
+        compose.onNodeWithText("Vérifier l’import").performScrollTo().performClick()
+        compose.onNodeWithText("1 élèves").assertExists();compose.onNodeWithText("Enregistrer").performClick();await { prep.workbook==null }
+        val imported=prep.classes.single { it.name=="6e Fiction" }
+        assertEquals("6e",imported.level);assertEquals("Alice",imported.pupils.single().firstName);assertEquals(Sex.GIRL,imported.pupils.single().sex)
+    }
+
 }

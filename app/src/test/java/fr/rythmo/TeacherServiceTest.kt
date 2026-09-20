@@ -52,7 +52,7 @@ class TeacherServiceTest {
  @Test fun `identity failure reports the error and stops the foreground service`() {
   Host.failure=IllegalStateException("Storage unavailable")
   val controller=Robolectric.buildService(Host::class.java).create();val service=controller.get()
-  try { await { TeacherService.status.error!=null };assertFalse(TeacherService.status.running);assertTrue(shadowOf(service).isStoppedBySelf) }
+  try { await { TeacherService.status.error!=null && shadowOf(service).isStoppedBySelf };assertFalse(TeacherService.status.running) }
   finally { controller.destroy() }
  }
 }

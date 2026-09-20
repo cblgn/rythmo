@@ -110,4 +110,65 @@ class NearbyTransportTest {
   assertEquals(1,transport.state.value.associations.size)
   scheduler.advanceTimeBy(60001);pump();assertTrue(transport.state.value.associations.isEmpty());assertTrue(calls.contains("rejectConnection"))
  }
+ private fun update(id: Long, status: Int, size: Long = 0) {
+  payloads!!.onPayloadTransferUpdate("pupil", PayloadTransferUpdate.Builder()
+   .setPayloadId(id).setStatus(status).setTotalBytes(size).setBytesTransferred(size).build())
+  pump()
+ }
+ @Test fun `stream response waits for transfer success and large replies use private streams`() {
+  transport.advertise("Teacher") { _,request -> request.copy(payload=kotlinx.serialization.json.JsonPrimitive("x".repeat(40000))) };pump();connected("pupil")
+  val request=SyncMessage(type="sync_request")
+  val bytes=SyncCodec.encode(request)
+  val stream=Payload.fromStream(java.io.ByteArrayInputStream(bytes))
+  payloads!!.onPayloadReceived("pupil",stream);pump()
+  update(stream.id,PayloadTransferUpdate.Status.IN_PROGRESS,bytes.size.toLong())
+  assertTrue(sent.isEmpty())
+  update(stream.id,PayloadTransferUpdate.Status.SUCCESS,bytes.size.toLong())
+  waitFor { sent.isNotEmpty() }
+  val reply=sent.single();assertEquals(Payload.Type.STREAM,reply.type)
+  assertEquals(request.requestId,SyncCodec.decode(reply.asStream()!!.asInputStream()!!.readBytes()).requestId)
+  update(reply.id,PayloadTransferUpdate.Status.SUCCESS)
+  lifecycle!!.onDisconnected("pupil");pump();assertEquals(ConnectionPhase.IDLE,transport.state.value.phase)
+ }
+ @Test fun `failed oversized and abandoned streams never reach the session handler`() {
+  var handled=0
+  transport.advertise("Teacher") { _,request -> handled++;request };pump();connected("pupil")
+  val bytes=SyncCodec.encode(SyncMessage(type="sync_request"))
+  for(status in listOf(PayloadTransferUpdate.Status.FAILURE,PayloadTransferUpdate.Status.CANCELED)) {
+   val stream=Payload.fromStream(java.io.ByteArrayInputStream(bytes))
+   payloads!!.onPayloadReceived("pupil",stream);pump();update(stream.id,status)
+  }
+  val oversized=Payload.fromStream(java.io.ByteArrayInputStream(bytes))
+  payloads!!.onPayloadReceived("pupil",oversized);pump()
+  update(oversized.id,PayloadTransferUpdate.Status.IN_PROGRESS,SyncCodec.MAX_BYTES.toLong()+1)
+  val unfinished=Payload.fromStream(java.io.ByteArrayInputStream(bytes))
+  payloads!!.onPayloadReceived("pupil",unfinished);pump();scheduler.advanceTimeBy(45001);pump()
+  assertTrue(calls.contains("cancelPayload"));assertEquals(0,handled)
+  val disconnecting=Payload.fromStream(java.io.ByteArrayInputStream(bytes))
+  payloads!!.onPayloadReceived("pupil",disconnecting);pump();lifecycle!!.onDisconnected("pupil");pump()
+  update(disconnecting.id,PayloadTransferUpdate.Status.SUCCESS);assertEquals(0,handled)
+ }
+ @Test fun `disconnect and send failures complete pending exchanges without losing the local request`() {
+  val request=SyncMessage(type="submit_result",payload=kotlinx.serialization.json.JsonPrimitive("x".repeat(40000)))
+  transport.connect(Endpoint("host","Teacher"),"Tablet");pump();connected()
+  val result=CompletableFuture.supplyAsync { runCatching { transport.exchange(request) } }
+  waitFor { sent.isNotEmpty() };transport.disconnect();pump();waitFor { result.isDone }
+  assertTrue(result.get().exceptionOrNull()!!.message!!.contains("fermée"))
+  transport.connect(Endpoint("host","Teacher"),"Tablet");pump();connected()
+  error=IllegalStateException("Send failed")
+  val failed=CompletableFuture.supplyAsync { runCatching { transport.exchange(request) } }
+  waitFor { failed.isDone };assertEquals("Send failed",failed.get().exceptionOrNull()!!.message)
+  error=null;transport.disconnect();pump()
+  val offline=CompletableFuture.supplyAsync { runCatching { transport.exchange(request) } }
+  waitFor { offline.isDone };assertTrue(offline.get().isFailure)
+ }
+ @Test fun `late discovery joins once and explicit confirmation ignores unknown endpoints`() {
+  transport.discover("Tablet");pump();scheduler.advanceTimeBy(3000);pump()
+  discovery!!.onEndpointFound("host",DiscoveredEndpointInfo("service","Teacher"));pump();scheduler.advanceTimeBy(501);pump()
+  assertEquals(ConnectionPhase.CONNECTING,transport.state.value.phase)
+  transport.confirm("unknown",true);pump();assertFalse(calls.contains("acceptConnection"))
+  connected();val requests=calls.count { it=="requestConnection" }
+  transport.connect(Endpoint("other","Other"),"Tablet");pump();assertEquals(requests,calls.count { it=="requestConnection" })
+ }
+
 }
