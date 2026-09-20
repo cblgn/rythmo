@@ -1,9 +1,17 @@
 package fr.rythmo.ui
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.painterResource
+import fr.rythmo.R
+import fr.rythmo.runnerGridColumns
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -46,10 +54,14 @@ internal fun RunnerGrid(group: RaceGroup, interrupted: Boolean, pdfErrors: Set<S
     onUndo: (RunnerRecord) -> Unit = {}, selectableIds: Set<String>? = null, selectedIds: Set<String> = emptySet(), onRunner: (RunnerRecord) -> Unit) {
     val labels = remember(group.runners.map { it.pupil }) { runnerLabels(group.runners) }
     BoxWithConstraints(modifier.fillMaxWidth()) {
-        val columns = if (maxWidth >= 600.dp) 4 else 2
+        val fontScale = LocalDensity.current.fontScale
+        val columns = runnerGridColumns(maxWidth.value.toInt(), maxHeight.value.toInt(), group.runners.size, fontScale)
+        val rows = (group.runners.size + columns - 1) / columns
+        val minimumHeight = if (group.runners.any { it.closed(group.session) }) 160 else if (labels.values.any { it.length > 20 }) 144 else 112
+        val cellHeight = ((maxHeight - 8.dp * (rows - 1)) / rows).coerceIn((minimumHeight * fontScale).dp, (260 * fontScale).dp)
         LazyVerticalGrid(columns = GridCells.Fixed(columns), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(group.runners, key = { it.id }) { runner ->
-                RunnerCard(group, runner, labels.getValue(runner.id), interrupted, runner.id in pdfErrors,
+                RunnerCard(group, runner, labels.getValue(runner.id), cellHeight, interrupted, runner.id in pdfErrors,
                     { onUndo(runner) }, selectableIds?.let { runner.id in it }, runner.id in selectedIds) { onRunner(runner) }
             }
         }
@@ -58,7 +70,7 @@ internal fun RunnerGrid(group: RaceGroup, interrupted: Boolean, pdfErrors: Set<S
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RunnerCard(group: RaceGroup, runner: RunnerRecord, label: String, interrupted: Boolean, pdfError: Boolean,
+private fun RunnerCard(group: RaceGroup, runner: RunnerRecord, label: String, cellHeight: androidx.compose.ui.unit.Dp, interrupted: Boolean, pdfError: Boolean,
     onUndo: () -> Unit, selectable: Boolean?, selected: Boolean, onClick: () -> Unit) {
     val count = runner.rawCumulativeMs.size
     var previous by remember(runner.id) { mutableIntStateOf(count) }
@@ -71,11 +83,12 @@ private fun RunnerCard(group: RaceGroup, runner: RunnerRecord, label: String, in
     }
     val lap = remember(runner, group.session) { runner.laps(group.session).lastOrNull() }
     val closed = runner.closed(group.session)
-    val container = when (lap?.paceChange) {
-        PaceChange.FASTER -> Color(0xFFDAF2E3)
-        PaceChange.SLOWER -> Color(0xFFFFE1DC)
-        PaceChange.EQUIVALENT -> Color(0xFFE1EDFF)
-        null -> MaterialTheme.colorScheme.surfaceContainer
+    val container = when {
+        closed -> MaterialTheme.colorScheme.surfaceContainerHigh
+        lap?.paceChange == PaceChange.FASTER -> Color(0xFFDAF2E3)
+        lap?.paceChange == PaceChange.SLOWER -> Color(0xFFFFE1DC)
+        lap?.paceChange == PaceChange.EQUIVALENT -> Color(0xFFE1EDFF)
+        else -> MaterialTheme.colorScheme.surfaceContainer
     }
     val symbol = when (lap?.paceChange) { PaceChange.FASTER -> "↑"; PaceChange.SLOWER -> "↓"; PaceChange.EQUIVALENT -> "="; null -> "" }
     val paceDescription = when (lap?.paceChange) {
@@ -85,40 +98,55 @@ private fun RunnerCard(group: RaceGroup, runner: RunnerRecord, label: String, in
         null -> ""
     }
     val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val elevation by animateDpAsState(if (pressed) 6.dp else 2.dp, tween(100), label = "Pupil press")
     val shape = CardDefaults.shape
     val configuration = LocalViewConfiguration.current
     CompositionLocalProvider(LocalViewConfiguration provides object : androidx.compose.ui.platform.ViewConfiguration by configuration {
         override val longPressTimeoutMillis: Long = 1000
     }) {
-        Card(modifier = Modifier.fillMaxWidth().heightIn(min = 112.dp).clip(shape).semantics(mergeDescendants = true) {
-            stateDescription = "$count sur ${group.session.distances.size} passages. $paceDescription"
+        Card(modifier = Modifier.fillMaxWidth().heightIn(min = cellHeight).semantics(mergeDescendants = true) {
+            stateDescription = "$count sur ${group.session.distances.size} passages. " + if (runner.abandoned) "Abandon" else if (closed) "Arrivé" else paceDescription
             if (selectable == true) toggleableState = ToggleableState(selected)
-        }.combinedClickable(
-            interactionSource = interaction, indication = ripple(),
-            role = if (selectable == true) Role.Checkbox else Role.Button,
-            enabled = selectable ?: (closed || (group.claimed && group.startElapsedMs != null && !interrupted)),
-            onClick = onClick, onLongClickLabel = "Annuler le dernier passage", onLongClick = if (selectable == null) onUndo else null),
+        },
             border = if (selectable == true && selected) BorderStroke(3.dp, MaterialTheme.colorScheme.primary) else if (feedback) BorderStroke(2.dp, Color(0xFF172033)) else null,
-            shape = shape,
+            shape = shape, elevation = CardDefaults.cardElevation(defaultElevation = elevation),
             colors = CardDefaults.cardColors(containerColor = container, contentColor = Color(0xFF172033))) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    if (selectable == true) Checkbox(checked = selected, onCheckedChange = null, modifier = Modifier.size(24.dp))
+            Column(Modifier.fillMaxWidth().height(cellHeight).clip(shape).combinedClickable(
+                interactionSource = interaction, indication = ripple(),
+                role = if (selectable == true) Role.Checkbox else Role.Button,
+                enabled = selectable ?: (closed || (group.claimed && group.startElapsedMs != null && !interrupted)),
+                onClick = onClick, onLongClickLabel = "Annuler le dernier passage",
+                onLongClick = if (selectable == null) onUndo else null
+            ).padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (selectable == true) Checkbox(checked = selected, onCheckedChange = null, modifier = Modifier.align(Alignment.End).size(24.dp))
+                Spacer(Modifier.weight(1f))
+                Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge,
+                    textAlign = TextAlign.Center, maxLines = 3, modifier = Modifier.fillMaxWidth())
+                if (closed) {
+                    Text(if (runner.abandoned) "Abandon" else "Arrivé", style = MaterialTheme.typography.labelLarge)
+                    if (!runner.abandoned) Text(stopwatchTenths(runner.cumulativeMs(group.session).last()),
+                        fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                } else if (feedback && lap != null) {
+                    Text("Tour ${TimeFormat.duration(lap.durationMs)}", style = MaterialTheme.typography.bodyMedium)
+                    lap.differenceMs?.let { Text("$symbol ${TimeFormat.difference(it)}", style = MaterialTheme.typography.labelMedium) }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Text(if (feedback && lap != null) "Tour ${TimeFormat.duration(lap.durationMs)}" else
-                    runner.cumulativeMs(group.session).lastOrNull()?.let(::stopwatchTenths) ?: "—",
-                    style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
-                Text("$count / ${group.session.distances.size}" + if (feedback && lap?.differenceMs != null)
-                    " · $symbol ${TimeFormat.difference(requireNotNull(lap.differenceMs))}" else " $symbol",
-                    style = MaterialTheme.typography.labelLarge)
-                if (closed) Text(when {
-                    runner.abandoned -> "Abandon"
-                    runner.pdfRevision == runner.revision -> "Arrivé · PDF"
-                    pdfError -> "Arrivé · PDF à réessayer"
-                    else -> "Arrivé · PDF…"
+                Spacer(Modifier.weight(1f))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    if (closed) Icon(painterResource(if (runner.abandoned) R.drawable.ic_stop else R.drawable.ic_flag), contentDescription = null, modifier = Modifier.size(20.dp))
+                    else Text(symbol, style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.weight(1f))
+                    Text("$count / ${group.session.distances.size}", style = MaterialTheme.typography.labelLarge)
+                }
+                if (closed && !runner.abandoned) Text(when {
+                    runner.pdfRevision == runner.revision -> "PDF prêt"
+                    pdfError -> "PDF à réessayer"
+                    else -> "Création du PDF…"
                 }, style = MaterialTheme.typography.labelSmall)
+                LinearProgressIndicator(progress = { count.toFloat() / group.session.distances.size },
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(4.dp), color = Color(0xFF55504B), trackColor = MaterialTheme.colorScheme.outlineVariant)
             }
         }
     }
@@ -137,6 +165,7 @@ private fun previewGroup(complete: Boolean = false): RaceGroup {
 
 @Preview(showBackground = true, widthDp = 393, heightDp = 851)
 @Preview(showBackground = true, widthDp = 900, heightDp = 900)
+@Preview(showBackground = true, widthDp = 851, heightDp = 393)
 @Preview(showBackground = true, widthDp = 393, heightDp = 851, fontScale = 1.6f)
 @Composable
 private fun EightRunnersPreview() { TimingPreview(false) }

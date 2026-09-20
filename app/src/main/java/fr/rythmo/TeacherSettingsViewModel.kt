@@ -17,6 +17,9 @@ class TeacherSettingsViewModel(loadLock: () -> LocalTeacherLock) : ViewModel() {
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     var recoveryCode by mutableStateOf<String?>(null); private set
+    var stopServerRequested by mutableStateOf(false); private set
+    fun requestServerStop() { stopServerRequested = true; requestSettings() }
+    fun cancelServerStop() { stopServerRequested = false }
     var individual by mutableStateOf(false); private set
 
     init {
@@ -31,7 +34,7 @@ class TeacherSettingsViewModel(loadLock: () -> LocalTeacherLock) : ViewModel() {
     }
 
     fun requestSettings() { requested = true; error = null }
-    fun leaveSettings() { generation++; unlocked = false; requested = false; error = null }
+    fun leaveSettings() { stopServerRequested = false; generation++; unlocked = false; requested = false; error = null }
     fun background() { leaveSettings() }
     fun requireUnlocked() { check(configured && setupComplete && unlocked && recoveryCode == null) { "Déverrouillez les réglages professeur." } }
     fun openIndividual() { requireUnlocked(); individual = true; leaveSettings() }

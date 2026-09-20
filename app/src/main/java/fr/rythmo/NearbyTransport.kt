@@ -25,9 +25,10 @@ import java.util.concurrent.TimeUnit
 
 /** Google callbacks are marshalled to Main; parsing and durable writes run on IO. */
 @SuppressLint("MissingPermission")
-class NearbyTransport(context: Context) : LocalTransport {
+class NearbyTransport internal constructor(context: Context, private val client: ConnectionsClient,
+    private val availabilityProblem: () -> String?) : LocalTransport {
+    constructor(context: Context) : this(context, Nearby.getConnectionsClient(context), { NearbyRequirements.problem(context) })
     private val context = context.applicationContext
-    private val client = Nearby.getConnectionsClient(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutable = MutableStateFlow(TransportState())
     override val state = mutable.asStateFlow()
@@ -88,6 +89,14 @@ class NearbyTransport(context: Context) : LocalTransport {
         client.startAdvertising(name.take(100), serviceId, lifecycle,
             AdvertisingOptions.Builder().setStrategy(Strategy.P2P_STAR).build())
             .addOnSuccessListener { mutable.value = mutable.value.copy(phase = ConnectionPhase.IDLE, advertising = true) }
+            .addOnFailureListener { fail(it) }
+    } }
+    /** Refresh discovery text without disconnecting authenticated endpoints. */
+    fun renameHost(name: String) { scope.launch {
+        if (!active || receiver == null || !mutable.value.advertising) return@launch
+        client.stopAdvertising()
+        client.startAdvertising(name.take(100), serviceId, lifecycle,
+            AdvertisingOptions.Builder().setStrategy(Strategy.P2P_STAR).build())
             .addOnFailureListener { fail(it) }
     } }
     override fun confirm(endpointId: String, accept: Boolean) { scope.launch {
@@ -224,7 +233,7 @@ class NearbyTransport(context: Context) : LocalTransport {
         failPending(mutable.value.error!!)
     }
     private fun available(): Boolean {
-        val error = NearbyRequirements.problem(context)
+        val error = availabilityProblem()
         if (error != null) { fail(IllegalStateException(error)); return false }
         return true
     }

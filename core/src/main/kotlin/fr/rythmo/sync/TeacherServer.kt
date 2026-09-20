@@ -24,11 +24,11 @@ class TeacherServer(val store: TeacherStore, val identity: TeacherTls, port: Int
     }
 
     private fun route(r: IHTTPSession): Response {
-        val adminRoute = r.uri == "/" || r.uri == "/admin.js" || r.uri.startsWith("/admin/")
+        val adminRoute = r.uri == "/" || r.uri in listOf("/admin.js", "/preparation.js") || r.uri.startsWith("/admin/")
         if (adminRoute != localAdmin && r.uri != "/health")
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Adresse inconnue.")
-        if (r.method == Method.GET && r.uri in listOf("/", "/admin.js")) {
-            val path = if (r.uri == "/") "/teacher/index.html" else "/teacher/admin.js"
+        if (r.method == Method.GET && r.uri in listOf("/", "/admin.js", "/preparation.js")) {
+            val path = if (r.uri == "/") "/teacher/index.html" else "/teacher${r.uri}"
             val content = checkNotNull(javaClass.getResourceAsStream(path)).bufferedReader().use { it.readText() }
             return newFixedLengthResponse(Response.Status.OK, if (r.uri == "/") "text/html; charset=utf-8" else "application/javascript", content)
         }
@@ -45,6 +45,15 @@ class TeacherServer(val store: TeacherStore, val identity: TeacherTls, port: Int
             r.method == Method.GET && r.uri == "/admin/state" -> json(JsonObject(sessionJson.encodeToJsonElement(store.state.let { state ->
                 state.copy(results = state.results.map { it.copy(upload = it.upload.copy(pdfBase64 = it.upload.pdfBase64?.let { "available" })) })
             }).jsonObject + ("tlsVerificationCode" to JsonPrimitive(identity.verificationCode))).toString())
+            r.method == Method.POST && r.uri == "/admin/import/preview" ->
+                json(sessionJson.encodeToString(TabularImport.read(sessionJson.decodeFromString(body(r)))))
+            r.method == Method.POST && r.uri == "/admin/classes" ->
+                json(sessionJson.encodeToString(store.importClass(sessionJson.decodeFromString(body(r)))))
+            r.method == Method.POST && r.uri == "/admin/preparation/validate" -> {
+                val preparation = sessionJson.decodeFromString<PreparationPackage>(body(r))
+                preparation.validate()
+                json(sessionJson.encodeToString(preparation))
+            }
             r.method == Method.POST && r.uri == "/admin/session" -> {
                 val session = sessionJson.decodeFromString<SessionConfig>(body(r))
                 store.publish(session)

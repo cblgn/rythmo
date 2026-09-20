@@ -52,7 +52,7 @@ jobs:
           build-mode: ${{ matrix.language == 'java-kotlin' && 'manual' || 'none' }}
       - name: Compile Kotlin for analysis
         if: matrix.language == 'java-kotlin'
-        run: ./gradlew --no-daemon --no-build-cache --rerun-tasks -Pkotlin.compiler.execution.strategy=in-process assembleDebug :server:classes
+        run: ./gradlew --no-daemon --no-build-cache --no-configuration-cache --rerun-tasks -Pkotlin.compiler.execution.strategy=in-process assembleDebug :server:classes
       - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           category: /language:${{ matrix.language }}

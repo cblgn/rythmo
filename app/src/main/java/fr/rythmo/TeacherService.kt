@@ -14,6 +14,7 @@ class TeacherService : Service() {
     private var admin: TeacherServer? = null
     private var discovery: DiscoveryResponder? = null
     @Volatile private var store: TeacherStore? = null
+    private var advertisementJob: Job? = null
     private var nearbyHost: NearbySessionHost? = null
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
@@ -21,12 +22,15 @@ class TeacherService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("teacher", "Synchronisation Rythmo", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val stop = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java)
+            .setAction(ACTION_STOP_REQUEST).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE)
         startForeground(42, Notification.Builder(this, "teacher").setSmallIcon(R.drawable.ic_wifi)
-            .setContentTitle("Rythmo enseignant actif").setContentText("Les appareils peuvent synchroniser leur séance et leurs bilans.")
+            .setContentTitle("Rythmo · Professeur").setContentText("Partage de séance actif")
+            .addAction(Notification.Action.Builder(null, "Arrêter…", stop).build())
             .setContentIntent(open).setOngoing(true).build())
         scope.launch {
             try {
-                val store = TeacherStore(File(filesDir, "teacher"))
+                val store = AndroidTeacherRepository.get(this@TeacherService).store
                 this@TeacherService.store = store
                 val identity = AndroidTeacherIdentity.load()
                 ensureActive()
@@ -51,7 +55,16 @@ class TeacherService : Service() {
         nearbyHost?.close()
         val transport = NearbyTransport(this)
         nearbyReference = java.lang.ref.WeakReference(transport)
-        nearbyHost = NearbySessionHost(transport, current).also { it.start() }
+        nearbyHost = NearbySessionHost(transport, current).also { it.start(AndroidTeacherRepository.get(this).preparation.draft.teacherName) }
+        advertisementJob?.cancel()
+        advertisementJob = scope.launch {
+            var previous = ""
+            while (isActive && !destroyed && nearbyHost != null) {
+                val name = nearbyHost?.displayName(AndroidTeacherRepository.get(this@TeacherService).preparation.draft.teacherName).orEmpty()
+                if (name != previous) { withContext(Dispatchers.Main) { transport.renameHost(name) }; previous = name }
+                delay(1000)
+            }
+        }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.getBooleanExtra("nearby", false) == true) {
@@ -67,9 +80,11 @@ class TeacherService : Service() {
             discovery?.close(); server?.stop(); admin?.stop()
             status = status.copy(running = false)
         }
+        stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
     companion object {
+        const val ACTION_STOP_REQUEST = "fr.rythmo.REQUEST_STOP_TEACHER"
         @Volatile var status = TeacherStatus(false)
         private var nearbyReference = java.lang.ref.WeakReference<NearbyTransport>(null)
         val nearby: NearbyTransport? get() = nearbyReference.get()

@@ -70,7 +70,7 @@ class RythmoViewModel @JvmOverloads constructor(
             cumulativeTimesMs = savedState.get<LongArray>("times")?.toList() ?: emptyList(),
             minutes = savedState["minutes"] ?: "",
             seconds = savedState["seconds"] ?: "",
-            editingLapNumber = savedState["editingLapNumber"],
+            editingLapNumber = null,
             timingMode = savedState.get<String>("timingMode")?.let(TimingMode::valueOf) ?: TimingMode.MANUAL,
             chronoStartedAt = savedState.get<String>("chronoStartedAt")?.let(LocalDateTime::parse),
             timerStartedElapsedMs = savedState["timerStartedElapsedMs"],
@@ -169,42 +169,7 @@ class RythmoViewModel @JvmOverloads constructor(
         }
     }
 
-    fun submitTime(): Boolean = if (state.editingLapNumber == null) addPassage() else confirmCorrection()
-
-    fun editLap(number: Int) {
-        if (state.result == null || number !in 1..LAP_COUNT || state.corrections.any { it.lapNumber == number }) return
-        val duration = state.laps[number - 1].durationMs
-        update(state.copy(editingLapNumber = number,
-            minutes = if (state.timingMode == TimingMode.AUTOMATIC) "" else (duration / 60_000).toString(),
-            seconds = if (state.timingMode == TimingMode.AUTOMATIC) "" else ((duration / 1_000) % 60).toString().padStart(2, '0'), inputError = null))
-    }
-
-    fun cancelCorrection() = update(state.copy(editingLapNumber = null, minutes = "", seconds = "", inputError = null))
-
-    fun confirmCorrection(): Boolean {
-        val number = state.editingLapNumber ?: return false
-        if (state.result == null || state.corrections.any { it.lapNumber == number }) return false
-        val validation = RaceInput.validateLap(state.minutes, state.seconds)
-        if (validation is SplitValidation.Invalid) {
-            update(state.copy(inputError = validation.message))
-            return false
-        }
-        val duration = (validation as SplitValidation.Accepted).durationMs
-        val original = state.laps[number - 1].durationMs
-        if (duration == original) {
-            update(state.copy(inputError = "Le temps est inchangé. Modifiez-le ou annulez."))
-            return false
-        }
-        val laps = state.laps.map { if (it.number == number) duration else it.durationMs }
-        val times = try { RaceCalculator.cumulativeTimes(laps) } catch (_: ArithmeticException) {
-            update(state.copy(inputError = "Le temps total est trop grand."))
-            return false
-        }
-        val correction = LapCorrection(number, original, duration, LocalDateTime.now())
-        update(state.copy(cumulativeTimesMs = times, corrections = state.corrections + correction,
-            editingLapNumber = null, minutes = "", seconds = "", inputError = null))
-        return true
-    }
+    fun submitTime(): Boolean = addPassage()
 
     private fun update(value: RythmoState) {
         state = value

@@ -27,3 +27,26 @@ test('teacher key validation rejects poisoned browser storage and malformed URL 
   for (const value of [null, {}, '', 'javascript:alert(1)', '<script>', '00000000-0000-0000-0000-000000000000\nHeader: evil']) assert.equal(validatedTeacherKey(value), '');
   assert.equal(validatedTeacherKey(' C102D24B-FADE-4123-8345-9BE66A647111 '), 'c102d24b-fade-4123-8345-9be66a647111');
 });
+
+const {scaledInteger, importTime, tableFromText, pupilsFromText, scoreSummary} = require('../core/src/main/resources/teacher/preparation.js');
+test('import duration conversion retains integer milliseconds including Excel fractions', () => {
+  assert.equal(importTime('1:23,456'), 83456);
+  assert.equal(importTime('83.456','seconds'), 83456);
+  assert.equal(importTime('0.5','excel'), 43200000);
+  assert.equal(scaledInteger('-2.001',1000), -2001);
+  assert.equal(scaledInteger('1.25',10), 13);
+  for (const value of ['NaN','1:60','0','-1','1:23.4567']) assert.throws(() => importTime(value));
+});
+test('performance import rejects duplicate or reversed bounds and increasing points', () => {
+  assert.deepEqual(tableFromText('5:00;10\n6:00;5'), [{timeMs:300000,pointsTenths:100},{timeMs:360000,pointsTenths:50}]);
+  for (const value of ['', '5:00;10\n5:00;5', '6:00;5\n5:00;1', '5:00;1\n6:00;5']) assert.throws(() => tableFromText(value));
+});
+test('class import preserves known identifiers and rejects ambiguous names', () => {
+  const prior = [{id:'stable',firstName:'Alice',lastName:'Exemple',sex:'GIRL'}];
+  assert.equal(pupilsFromText('Alice;Exemple;F',prior)[0].id, 'stable');
+  assert.throws(() => pupilsFromText('Alice;Exemple;F\nalice;Exemple;F'));
+  assert.throws(() => pupilsFromText('Alice;Exemple;unknown'));
+});
+test('results expose both component sum and proportional grade', () => {
+  assert.match(scoreSummary({totalTenths:100,maxTenths:150,outOf20Tenths:133,performanceTenths:70,comparisonTenths:30}), /10 \/ 15 · 13,3 \/ 20/);
+});

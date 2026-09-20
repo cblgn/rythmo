@@ -16,3 +16,11 @@ fun stopwatchTenths(milliseconds: Long): String {
     val tenths = milliseconds.coerceAtLeast(0) / 100
     return "${tenths / 600}:${(tenths / 10 % 60).toString().padStart(2, '0')},${tenths % 10}"
 }
+
+/** Keep stable row order and readable targets when the window or text size changes. */
+fun runnerGridColumns(widthDp: Int, heightDp: Int, count: Int, fontScale: Float): Int {
+    require(count in 1..8)
+    val fitting = (widthDp / (144 * fontScale.coerceAtLeast(1f))).toInt().coerceIn(1, 4)
+    val preferred = if (widthDp > heightDp || widthDp >= 1000) 4 else 2
+    return minOf(count, fitting, preferred).coerceAtLeast(1)
+}

@@ -73,10 +73,16 @@ jobs:
         run: python3 scripts/check-public-files.py
       - name: Check GitHub Actions workflows
         run: .tools/ci/actionlint -shellcheck=""
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.20.0'
+          package-manager-cache: false
+      - name: Install console test dependencies
+        run: npm ci --ignore-scripts
       - name: Check helper scripts
         run: |
           for script in scripts/*.sh; do bash -n "$script"; done
           node --check core/src/main/resources/teacher/admin.js
-          node --test tests/teacher-page.test.cjs
+          node --test tests/*.test.cjs
           python3 -m compileall -q scripts
           python3 -m unittest discover -s scripts/tests -v

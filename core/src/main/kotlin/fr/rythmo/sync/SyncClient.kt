@@ -7,7 +7,7 @@ import java.net.URLEncoder
 class SyncClient(private val endpoint: String, private val code: String, private val fingerprint: String) {
     fun download(deviceId: String, name: String): SessionEnvelope {
         val value = sessionJson.decodeFromString<SessionEnvelope>(request("/api/session?deviceId=${encode(deviceId)}&deviceName=${encode(name)}"))
-        require(value.protocol == PROTOCOL_VERSION) { "Mettez à jour Rythmo : version de synchronisation incompatible." }
+        require(supportedProtocol(value.protocol)) { "Mettez à jour Rythmo : version de synchronisation incompatible." }
         value.session.validate()
         return value
     }

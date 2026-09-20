@@ -21,9 +21,12 @@ class NearbySessionHost(private val transport: LocalTransport, private val store
         }
     }
     @Synchronized private fun forget(endpoints: Set<String>) { endpoints.forEach(devices::remove) }
-    fun start() {
+    fun displayName(teacherName: String): String {
         val session = store.state.sessions.firstOrNull { it.id == store.state.activeSessionId }
-        transport.advertise("Rythmo · ${session?.schoolClass ?: "Professeur"}", ::receive)
+        return "$teacherName · ${session?.schoolClass.orEmpty()} · ${session?.title.orEmpty()}".take(100)
+    }
+    fun start(teacherName: String = "Professeur") {
+        transport.advertise(displayName(teacherName), ::receive)
     }
     @Synchronized private fun receive(endpoint: String, request: SyncMessage): SyncMessage {
         if (request.type == "sync_request") {

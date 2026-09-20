@@ -27,10 +27,10 @@ object PdfExporter {
             var page = document.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNumber).create())
             val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(23, 32, 51) }
             var y = 48f
-            fun text(value: String, x: Float = 40f, line: Float = y, size: Float = 12f, bold: Boolean = false) {
+            fun text(value: String, x: Float = 40f, line: Float = y, size: Float = 12f, bold: Boolean = false, width: Float = 555f - x, italic: Boolean = false) {
                 paint.textSize = size
-                paint.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                page.canvas.drawText(TextUtils.ellipsize(value, paint, 555f - x, TextUtils.TruncateAt.END).toString(), x, line, paint)
+                paint.typeface = if (italic) Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC) else if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                page.canvas.drawText(TextUtils.ellipsize(value, paint, width, TextUtils.TruncateAt.END).toString(), x, line, paint)
             }
             fun nextPage() {
                 document.finishPage(page)
@@ -39,8 +39,9 @@ object PdfExporter {
                 text("Rythmo · ${report.student.firstName} ${report.student.lastName} · Suite", bold = true)
                 y += 36f
             }
-            paint.color = Color.rgb(24, 90, 188)
-            text("Rythmo", size = 28f, bold = true); y += 28f
+            paint.color = Color.rgb(174, 65, 23)
+            context.getDrawable(fr.rythmo.R.drawable.ic_rythmo)?.let { logo -> logo.setBounds(40, 25, 72, 65); logo.draw(page.canvas) }
+            text("Rythmo", x = 82f, size = 28f, bold = true, italic = true); y += 28f
             text("Évaluation demi-fond · ${report.distanceMeters} m" + (report.equalLapCount?.let { " · $it tours" } ?: ""), size = 16f); y += 34f
             paint.color = Color.rgb(23, 32, 51)
             text("${report.student.firstName} ${report.student.lastName}", size = 18f, bold = true); y += 24f
@@ -50,23 +51,23 @@ object PdfExporter {
             text(if (report.timingMode == TimingMode.AUTOMATIC)
                 "Chrono automatique · Départ à ${report.chronoStartedAt?.format(DateTimeFormatter.ofPattern("HH:mm:ss")) ?: "—"}"
                 else "Saisie manuelle par tour", size = 10f); y += 28f
-            val columns = listOf(40f, 150f, 255f, 365f)
+            val columns = listOf(40f, 155f, 285f, 465f)
             fun headings() {
-                listOf("Distance", "Segment", "Total", "Écart / tour préc.").forEachIndexed { i, label -> text(label, columns[i], bold = true) }
+                listOf("Passage", "Temps du tour", "Écart / précédent", "Cumul").forEachIndexed { i, label -> text(label, columns[i], bold = true) }
                 y += 30f
             }
             headings()
             report.result.laps.forEach { lap ->
                 if (y > 710f) { nextPage(); headings() }
                 text(report.equalLapCount?.let { "Tour ${lap.number}/$it" } ?: "${lap.distanceMeters} m", columns[0]); text(TimeFormat.duration(lap.durationMs), columns[1])
-                text(TimeFormat.duration(lap.cumulativeMs), columns[2])
+                text(TimeFormat.duration(lap.cumulativeMs), columns[3])
                 paint.color = when (lap.paceChange) {
                     PaceChange.FASTER -> Color.rgb(20, 108, 58)
                     PaceChange.SLOWER -> Color.rgb(179, 38, 30)
                     else -> Color.rgb(24, 90, 188)
                 }
-                text(lap.differenceMs?.let(TimeFormat::difference) ?: "—", columns[3], bold = true)
-                lap.paceChange?.let { text(it.label, columns[3] + 92f, size = 9f) }
+                text(lap.differenceMs?.let(TimeFormat::difference) ?: "—", columns[2], bold = true)
+                lap.paceChange?.let { text(it.label, columns[2] + 80f, size = 9f) }
                 paint.color = Color.DKGRAY
                 y += 15f
                 if (report.equalLapCount == null && lap.segmentMeters != report.referenceLapMeters) { text("Segment de ${lap.segmentMeters} m : écart non comparable au tour complet", 150f, size = 9f); y += 14f }
@@ -75,30 +76,65 @@ object PdfExporter {
                     y += 15f
                 }
                 paint.color = Color.LTGRAY; page.canvas.drawLine(40f, y, 555f, y, paint)
-                paint.color = Color.rgb(23, 32, 51); y += 28f
+                paint.color = Color.rgb(23, 32, 51); y += 15f
             }
-            if (y + 310f > 800f) nextPage()
-            text("Bilan de l’épreuve", size = 20f, bold = true); y += 34f
-            report.gradeTenths?.let {
-                text("Note provisoire · barème de démonstration", size = 12f)
-                text("${formatPoints(it)} / ${formatPoints(report.maxGradeTenths)}", 420f, size = 18f, bold = true); y += 30f
+            fun line(value: String, size: Float = 10f) {
+                if (y > 775f) nextPage()
+                text(value, size = size); y += 17f
             }
-            val result = report.result
-            listOf("Temps total" to TimeFormat.duration(result.totalMs),
-                (if (report.equalLapCount != null) "Temps moyen / tour" else "Temps moyen / ${report.referenceLapMeters} m") to TimeFormat.duration(result.averageLapMs),
-                "Progression sur tours complets" to TimeFormat.difference(result.progressionMs),
-                "Irrégularité cumulée" to TimeFormat.difference(result.cumulativeIrregularityMs).removePrefix("+")
-            ).forEach { (label, value) -> text(label); text(value, 420f, bold = true); y += 26f }
-            y += 12f
-            text("Écart = temps du tour − temps du tour précédent, à distance égale.", size = 10f); y += 18f
-            text("Bleu : −1 à +1 s · Vert : plus rapide · Rouge : plus lent.", size = 10f); y += 18f
-            text("La progression et l’irrégularité excluent le dernier segment s’il est plus court.", size = 10f); y += 18f
-            text("Une correction par passage. Les calculs utilisent les temps corrigés.", size = 10f); y += 18f
-            text("La régularité n’intervient pas dans la note de démonstration.", size = 10f)
-            report.cancelledPassages.forEach { entry ->
-                y += 18f
-                if (y > 780f) nextPage()
-                text(entry, size = 9f)
+            line("Écart = temps du tour − temps du tour précédent, à distance égale.", 9f)
+            line("Allure : bleu ±1 s · vert plus rapide · rouge plus lent.", 9f)
+            report.cancelledPassages.forEach { line(it, 9f) }
+            if (report.corrections.isNotEmpty()) line("Les corrections historiques sont conservées.", 9f)
+            if (y + 80f > 790f) nextPage()
+            y += 8f
+            text("Bilan chronométrique", size = 16f, bold = true); y += 26f
+            listOf("Temps total" to TimeFormat.duration(report.result.totalMs),
+                (if (report.equalLapCount != null) "Temps moyen / tour" else "Temps moyen / ${report.referenceLapMeters} m") to TimeFormat.duration(report.result.averageLapMs)
+            ).forEach { (label, value) -> text(label); text(value, 430f, bold = true); y += 22f }
+            val score = report.assessmentScore
+            if (score != null) {
+                val rubric = report.assessment
+                if (y + 245f > 790f) nextPage()
+                y += 12f
+                text("Barème et résultat", size = 16f, bold = true); y += 24f
+                val source = "${formatPoints(score.sourcePerformanceTenths)} / ${formatPoints(score.sourceMaxTenths)}"
+                line("Performance : $source selon la table du profil de l’élève.")
+                score.appliedThresholdMs?.let { line("Palier appliqué : ${TimeFormat.duration(it)} (sans interpolation).") }
+                val rule = if (rubric?.schemaVersion == 2) "Même temps ou plus rapide après arrondi à la seconde : 1 point." else {
+                    val threshold = rubric?.comparisonThresholdMs ?: 0L
+                    when {
+                        threshold == 0L -> "Comparaison réussie : même temps ou plus rapide que le tour précédent."
+                        threshold < 0 -> "Comparaison réussie : gagner au moins ${TimeFormat.difference(-threshold).removePrefix("+")} sur le tour précédent."
+                        else -> "Comparaison réussie : au plus ${TimeFormat.difference(threshold).removePrefix("+")} de plus que le tour précédent."
+                    }
+                }
+                line(rule)
+                line("${score.successfulComparisons} / ${score.comparisons} comparaisons réussies.")
+                y += 4f
+                listOf("Régularité" to "${formatPoints(score.comparisonTenths)} / ${formatPoints(score.comparisonMaxTenths)}",
+                    "Performance pondérée" to "${formatPoints(score.performanceTenths)} / ${formatPoints(score.performanceMaxTenths)}",
+                    "Total" to "${formatPoints(score.totalTenths)} / ${formatPoints(score.maxTenths)}"
+                ).forEach { (label, value) -> text(label); text(value, 430f, bold = true); y += 22f }
+                val expression = if (rubric?.schemaVersion == 2)
+                    "(${formatPoints(score.comparisonTenths)} + ${formatPoints(score.sourcePerformanceTenths)} × ${formatPoints(score.performanceMaxTenths)} / ${formatPoints(score.sourceMaxTenths)})"
+                    else formatPoints(score.totalTenths)
+                line("Conversion : $expression × 20 / ${formatPoints(score.maxTenths)} ; arrondi final au dixième.", 9f)
+                y += 6f
+                paint.color = Color.rgb(248, 235, 225)
+                page.canvas.drawRoundRect(40f, y - 5f, 555f, y + 44f, 10f, 10f, paint)
+                paint.color = Color.rgb(174, 65, 23)
+                text("Note finale", 54f, y + 24f, 16f, true)
+                text("${formatPoints(score.outOf20Tenths)} / 20", 400f, y + 25f, 23f, true)
+            } else report.gradeTenths?.let { grade ->
+                if (y + 110f > 790f) nextPage()
+                y += 12f
+                line("Barème de démonstration : la régularité ne modifie pas la note.")
+                line("Total : ${formatPoints(grade)} / ${formatPoints(report.maxGradeTenths)} ; conversion sur 20.")
+                y += 12f
+                text("Note finale", size = 16f, bold = true)
+                val normalized = ((grade.toLong() * 200 + report.maxGradeTenths / 2) / report.maxGradeTenths).toInt()
+                text("${formatPoints(normalized)} / 20", 400f, size = 23f, bold = true)
             }
             document.finishPage(page)
             FileOutputStream(pending).use { document.writeTo(it); it.fd.sync() }

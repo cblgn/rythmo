@@ -4,6 +4,7 @@ import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    jacoco
 }
 
 android {
@@ -16,11 +17,10 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "fr.rythmo.PdfValidationInstrumentation"
     }
     buildFeatures { compose = true }
-    buildTypes { debug { enableUnitTestCoverage = true } }
-    testCoverage { jacocoVersion = "0.8.15" }
+    testOptions { unitTests.isIncludeAndroidResources = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -40,6 +40,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-savedstate:2.9.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
 
@@ -49,3 +52,26 @@ fun configureAnalysisCompatibleCompiler() = kotlin {
     compilerVersion.set(providers.gradleProperty("rythmo.kotlinCompilerVersion"))
 }
 configureAnalysisCompatibleCompiler()
+
+// Robolectric loads Android code through its sandbox classloader without a source location.
+// Instrument those classes too; keep JVM internals out of the agent's instrumentation.
+tasks.withType<Test>().configureEach {
+    extensions.configure<JacocoTaskExtension> {
+        isIncludeNoLocationClasses = true
+        excludes = listOf("jdk.internal.*")
+    }
+}
+
+jacoco { toolVersion = "0.8.15" }
+tasks.register<JacocoReport>("createDebugUnitTestCoverageReport") {
+    dependsOn("testDebugUnitTest")
+    executionData(layout.buildDirectory.file("jacoco/testDebugUnitTest.exec"))
+    classDirectories.setFrom(layout.buildDirectory.dir("intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes"))
+    sourceDirectories.setFrom(files("src/main/java"))
+    reports {
+        xml.required.set(true)
+        xml.outputLocation.set(layout.buildDirectory.file("reports/coverage/test/debug/report.xml"))
+        html.required.set(true)
+        html.outputLocation.set(layout.buildDirectory.dir("reports/coverage/test/debug"))
+    }
+}

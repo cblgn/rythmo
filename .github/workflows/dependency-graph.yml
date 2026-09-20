@@ -41,6 +41,7 @@ jobs:
           cache-provider: basic
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
           dependency-graph: generate-and-upload
+          additional-arguments: --no-configuration-cache
           artifact-retention-days: 2
       - name: Export all resolved dependencies for the vulnerability audit
         env:
@@ -68,4 +69,4 @@ jobs:
           path: ${{ runner.temp }}/dependency-inventory
       - run: python3 scripts/ci-tools.py osv-scanner
       - name: Fail on known vulnerabilities in all dependency scopes
-        run: .tools/ci/osv-scanner scan source --lockfile "osv-scanner:$RUNNER_TEMP/dependency-inventory/osv-scanner.json" --lockfile requirements.txt:scripts/coverage-requirements.txt
+        run: .tools/ci/osv-scanner scan source --lockfile "osv-scanner:$RUNNER_TEMP/dependency-inventory/osv-scanner.json" --lockfile requirements.txt:scripts/coverage-requirements.txt --lockfile package-lock.json

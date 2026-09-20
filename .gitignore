@@ -34,3 +34,5 @@ __pycache__/
 /scripts/extract-rubric.py
 .scannerwork/
 .coverage
+
+node_modules/

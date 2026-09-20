@@ -64,6 +64,7 @@ data class SessionConfig(
     val pupils: List<Pupil>,
     val lapCount: Int? = null,
     val passageEveryMeters: Int = 400,
+    val assessment: AssessmentRubric? = null,
 ) {
     // For equal laps, these integer metre markers are approximate. Display the lap number,
     // and compare all laps as equal lengths (1000 / 6 is not an integer number of metres).
@@ -73,6 +74,8 @@ data class SessionConfig(
     val courseLabel: String get() = lapCount?.let { "$distanceMeters m · $it tours identiques" }
         ?: "$distanceMeters m · passages tous les $passageEveryMeters m"
     fun result(cumulativeMs: List<Long>): RaceResult = RaceCalculator.calculate(cumulativeMs, distances, lapCount != null, passageEveryMeters)
+    val rubricName: String get() = assessment?.name ?: rubric.name
+    val maxGradeTenths: Int get() = assessment?.maxTenths ?: rubric.maxGradeTenths
     fun validate() {
         require(validId(id) && title.isNotBlank() && title.length <= 100 && schoolClass.isNotBlank() && schoolClass.length <= 100)
         require(level in setOf("6e", "5e", "4e", "3e") && distanceMeters in 400..4000 && distanceMeters % 100 == 0)
@@ -82,6 +85,12 @@ data class SessionConfig(
         require(distances.size in 1..20) { "Le parcours doit comporter de 1 à 20 passages." }
         LocalDate.parse(date)
         rubric.validate()
+        assessment?.let {
+            it.validate()
+            if (it.schemaVersion == 2) require(lapCount != null && it.comparisonMaxTenths == (lapCount - 1) * 10)
+            val comparable = lapCount ?: (distanceMeters / passageEveryMeters)
+            require(it.comparisonMaxTenths == 0 || comparable >= 2) { "Prévoyez au moins deux intervalles comparables." }
+        }
         require(pupils.isNotEmpty() && pupils.size <= 30 && pupils.map { it.id }.distinct().size == pupils.size) { "Liste d’élèves invalide (30 maximum)." }
         pupils.forEach(Pupil::validate)
     }
@@ -114,8 +123,10 @@ data class RunnerRecord(
         }.drop(1)
     }
     fun laps(session: SessionConfig): List<LapResult> = RaceCalculator.calculateLaps(cumulativeMs(session), session.distances, session.lapCount != null)
-    fun grade(session: SessionConfig): Int? = if (finished(session))
-        session.rubric.gradeTenths(cumulativeMs(session).last(), session.distanceMeters, session.level, pupil.sex) else null
+    fun assessmentScore(session: SessionConfig): AssessmentScore? = if (!abandoned && finished(session))
+        session.assessment?.score(laps(session), pupil.sex, session.lapCount != null, session.passageEveryMeters) else null
+    fun grade(session: SessionConfig): Int? = if (!abandoned && finished(session))
+        assessmentScore(session)?.totalTenths ?: session.rubric.gradeTenths(cumulativeMs(session).last(), session.distanceMeters, session.level, pupil.sex) else null
     fun validate(session: SessionConfig) {
         require(validId(id) && session.pupils.any { it == pupil }) { "Élève absent de cette séance." }
         val raw = RaceCalculator.calculateLaps(rawCumulativeMs, session.distances, session.lapCount != null)
@@ -138,13 +149,6 @@ data class RunnerRecord(
         }
         return copy(rawCumulativeMs = rawCumulativeMs.dropLast(1), cancelledPassages = cancelledPassages +
             CancelledPassage(rawCumulativeMs.size, rawCumulativeMs.last(), LocalDateTime.now().toString()))
-    }
-    fun correct(session: SessionConfig, number: Int, durationMs: Long): RunnerRecord {
-        require(finished(session) && number in 1..session.distances.size) { "Correction disponible après l’arrivée." }
-        require(corrections.none { it.number == number }) { "Ce passage a déjà été corrigé." }
-        val original = laps(session)[number - 1].durationMs
-        require(durationMs in 1..86_400_000L && durationMs != original) { "Saisissez un nouveau temps positif, inférieur à 24 h." }
-        return copy(corrections = corrections + RecordedCorrection(number, original, durationMs, LocalDateTime.now().toString()))
     }
 }
 
@@ -183,9 +187,9 @@ data class RaceGroup(
             LocalDateTime.parse(preparedAt),
             runner.corrections.map { LapCorrection(it.number, it.originalMs, it.correctedMs, LocalDateTime.parse(it.at)) },
             TimingMode.AUTOMATIC, startedAt?.let(LocalDateTime::parse), session.distanceMeters,
-            "${session.level} · ${if (runner.pupil.sex == Sex.BOY) "Garçon" else "Fille"} · ${session.rubric.name} · ${session.rubric.version.take(8)}", runner.grade(session),
-            session.lapCount, session.passageEveryMeters, session.rubric.maxGradeTenths,
-            runner.cancelledPassages.map { "Passage ${it.number} annulé : cumul ${fr.rythmo.domain.TimeFormat.duration(it.cumulativeMs)} · ${it.cancelledAt}" })
+            "${session.level} · ${if (runner.pupil.sex == Sex.BOY) "Garçon" else "Fille"} · ${session.rubricName} · ${(session.assessment?.version ?: session.rubric.version).take(8)}", runner.grade(session),
+            session.lapCount, session.passageEveryMeters, session.maxGradeTenths,
+            runner.cancelledPassages.map { "Passage ${it.number} annulé : cumul ${fr.rythmo.domain.TimeFormat.duration(it.cumulativeMs)} · ${it.cancelledAt}" }, runner.assessmentScore(session), session.assessment)
     }
 }
 

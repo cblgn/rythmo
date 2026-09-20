@@ -39,10 +39,16 @@ jobs:
       - name: Android SDK
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"'
       - run: ./gradlew --no-daemon test assembleDebug :server:classes :app:createDebugUnitTestCoverageReport :core:jacocoTestReport
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.20.0'
+          package-manager-cache: false
+      - name: Install console test dependencies
+        run: npm ci --ignore-scripts
       - name: JavaScript and Python coverage
         run: |
           mkdir -p build/reports/js
-          node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=build/reports/js/lcov.info tests/teacher-page.test.cjs
+          node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=build/reports/js/lcov.info tests/*.test.cjs
           python3 -m venv "$RUNNER_TEMP/coverage-venv"
           "$RUNNER_TEMP/coverage-venv/bin/pip" install -r scripts/coverage-requirements.txt
           "$RUNNER_TEMP/coverage-venv/bin/python" -m coverage run -m unittest discover -s scripts/tests
