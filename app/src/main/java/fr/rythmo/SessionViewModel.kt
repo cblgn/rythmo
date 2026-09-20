@@ -25,12 +25,12 @@ data class CapturedPassage(val groupId: String, val elapsedMs: Long, val eligibl
 
 data class TeacherRequest(val action: TeacherAction, val runnerId: String? = null)
 
-class SessionViewModel internal constructor(application: Application, private val exchangeOverride: MessageTransport?) : AndroidViewModel(application) {
+class SessionViewModel internal constructor(application: Application, private val exchangeOverride: MessageTransport?,
+    val nearby: LocalTransport = NearbyTransport(application)) : AndroidViewModel(application) {
     constructor(application: Application) : this(application, null)
     private val directory = File(application.filesDir, "sessions")
     private val storage = JsonFile(File(directory, "client.json"), ClientArchive.serializer()) { ClientArchive() }
     private val mutex = Mutex()
-    val nearby = NearbyTransport(application)
     private var nearbyConnected = false
     var nearbyPanel by mutableStateOf(false); private set
     val useNearby: Boolean get() = archive.transport == "nearby" || (archive.transport.isEmpty() && archive.trustedServers.isEmpty())

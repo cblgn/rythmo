@@ -7,7 +7,7 @@ import fr.rythmo.sync.*
 import java.io.File
 import kotlinx.coroutines.*
 
-class TeacherService : Service() {
+open class TeacherService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var destroyed = false
     private var server: TeacherServer? = null
@@ -16,6 +16,7 @@ class TeacherService : Service() {
     @Volatile private var store: TeacherStore? = null
     private var advertisementJob: Job? = null
     private var nearbyHost: NearbySessionHost? = null
+    protected open fun loadIdentity(): TeacherTls = AndroidTeacherIdentity.load()
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
@@ -32,7 +33,7 @@ class TeacherService : Service() {
             try {
                 val store = AndroidTeacherRepository.get(this@TeacherService).store
                 this@TeacherService.store = store
-                val identity = AndroidTeacherIdentity.load()
+                val identity = loadIdentity()
                 ensureActive()
                 synchronized(this@TeacherService) {
                     if (!destroyed) {

@@ -27,7 +27,8 @@ class TeacherUiTest {
     private val models = ViewModelStore()
     private val app: Application get() = RuntimeEnvironment.getApplication()
     private fun <T: ViewModel> keep(m: T): T = m.also { models.put(newId(), it) }
-    @After fun close() { models.clear() }
+    @Before fun reset() { resetAndroidFixtures() }
+ @After fun close() { models.clear() }
     private fun settings(configured: Boolean = true): TeacherSettingsViewModel {
         val lock = LocalTeacherLock(File(app.cacheDir, "lock-${newId()}"))
         if (configured) { lock.initialize("123456", "123456"); lock.acknowledgeRecovery() }

@@ -25,6 +25,7 @@ class WorkspaceUiTest {
  @get:Rule val compose=createComposeRule()
  private val models=ViewModelStore()
  private val app:Application get()=RuntimeEnvironment.getApplication()
+ @Before fun reset() { resetAndroidFixtures() }
  @After fun close() { models.clear();TeacherService.status=TeacherStatus(false) }
  private fun await(condition:()->Boolean) { compose.waitUntil(10000) { shadowOf(Looper.getMainLooper()).idle();condition() } }
  private fun launch(archive:ClientArchive):Pair<SessionViewModel,TeacherSettingsViewModel> {

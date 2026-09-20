@@ -19,6 +19,7 @@ import java.io.File
 class TeacherPreparationViewModelTest {
  private val app:Application get()=RuntimeEnvironment.getApplication()
  private val models=ViewModelStore()
+ @Before fun reset() { resetAndroidFixtures() }
  @After fun close() { models.clear() }
  private fun waitFor(condition:()->Boolean) {
   val deadline=System.nanoTime()+10_000_000_000
