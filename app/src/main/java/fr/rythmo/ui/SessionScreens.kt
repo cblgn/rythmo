@@ -95,6 +95,7 @@ fun RythmoWorkspace(
             }
         }
     }
+    NearbyDialogs(model, settings)
     model.teacherRequest?.let { request -> TeacherActionDialog(model, request) }
 }
 
@@ -139,7 +140,14 @@ private fun TeacherActionDialog(model: SessionViewModel, request: TeacherRequest
 private fun PreparationScreen(model: SessionViewModel) {
     PreparationContent(model.archive, model.claims, model.discovered, model.networkBusy,
         model::discover, { url, code, name -> model.connection(url, code, name); model.download() },
-        model::requestUpload, model::selectGroup, model::prepare)
+        model::requestUpload, model::selectGroup, model::prepare,
+        nearbyControls = if (model.useNearby) ({ NearbyPreparation(model) }) else null,
+        connectionChoice = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = model.useNearby, onClick = { model.selectTransport(true) }, label = { Text("À proximité") })
+                FilterChip(selected = !model.useNearby, onClick = { model.selectTransport(false) }, label = { Text("Réseau local / PC") })
+            }
+        })
 }
 
 @Composable
@@ -147,6 +155,8 @@ internal fun PreparationContent(
     archive: ClientArchive, claims: List<fr.rythmo.sync.GroupClaim>, discovered: List<String>, networkBusy: Boolean,
     onDiscover: () -> Unit, onDownload: (String, String, String) -> Unit,
     onUpload: () -> Unit, onSelectGroup: (String) -> Unit, onPrepare: (Set<String>) -> Unit,
+    nearbyControls: (@Composable () -> Unit)? = null,
+    connectionChoice: @Composable () -> Unit = {},
 ) {
     val session = archive.session
     var url by remember(archive.serverUrl) { mutableStateOf(archive.serverUrl) }
@@ -158,6 +168,8 @@ internal fun PreparationContent(
     Column(Modifier.fillMaxSize()) {
     Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Préparer le groupe", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        connectionChoice()
+        if (nearbyControls != null) nearbyControls() else {
         Text("Au début du cours, connectez-vous au même Wi-Fi que le professeur et récupérez la séance.")
         OutlinedTextField(name, { name = it }, label = { Text("Nom de cet appareil") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(url, { url = it }, label = { Text("Adresse du serveur") }, singleLine = true,
@@ -167,6 +179,7 @@ internal fun PreparationContent(
         OutlinedTextField(code, { code = it }, label = { Text("Code d’association du professeur") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Button(onClick = { onDownload(url, code, name) }, enabled = !networkBusy && name.isNotBlank() && code.isNotBlank(),
             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(if (networkBusy) "Synchronisation…" else "Récupérer la séance") }
+        }
         if (session != null) {
             HorizontalDivider()
             Text("${session.schoolClass} · ${session.courseLabel}", style = MaterialTheme.typography.titleLarge)
@@ -244,6 +257,10 @@ private fun GroupScreen(model: SessionViewModel, group: RaceGroup) {
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         GroupClock(group) { model.elapsedMs }
         if (model.clockInterrupted && !group.complete) Text("Appareil redémarré : chrono interrompu. Clôturez la série ; les passages sont conservés.", color = MaterialTheme.colorScheme.error)
+        if (model.useNearby && (group.complete || group.startElapsedMs == null)) {
+            val nearbyState by model.nearby.state.collectAsState()
+            if (nearbyState.connected.isEmpty()) NearbyButton("Reconnecter le professeur", !model.networkBusy, model::retrieveNearby)
+        }
         if (!group.claimed) {
             Text("Groupe enregistré · validation à terminer.")
             Button(onClick = model::retryClaim, enabled = !model.networkBusy, modifier = Modifier.fillMaxWidth()) { Text("Réessayer la validation") }
@@ -331,10 +348,12 @@ private fun RunnerDialog(model: SessionViewModel, group: RaceGroup, runner: Runn
 private fun TeacherScreen(model: SessionViewModel, settings: TeacherSettingsViewModel, individual: RythmoViewModel) {
     val context = LocalContext.current
     var status by remember { mutableStateOf(TeacherService.status) }
+    var nearbyTransport by remember { mutableStateOf(TeacherService.nearby) }
     var addresses by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         while (true) {
             status = TeacherService.status
+            nearbyTransport = TeacherService.nearby
             addresses = runCatching { NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }
                 .filterIsInstance<Inet4Address>().filter { !it.isLoopbackAddress }.joinToString("\n") { "https://${it.hostAddress}:8765" } }.getOrDefault("")
             delay(1000)
@@ -356,7 +375,15 @@ private fun TeacherScreen(model: SessionViewModel, settings: TeacherSettingsView
         }
         HorizontalDivider()
         Text("Préparer et collecter", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Cet appareil peut héberger la séance. Connectez les chronométreurs au même Wi-Fi ou au point d’accès de ce téléphone. Internet n’est pas nécessaire.")
+        NearbyButton("Rendre la séance disponible à proximité", !model.raceRunning && !individual.raceInProgress) {
+            model.startTeacherServer(settings, individual, enableNearby = true)
+        }
+        nearbyTransport?.let { nearby ->
+            val state by nearby.state.collectAsState()
+            Text(if (state.error != null) nearbyStatus(state) else if (state.advertising) "Séance disponible · ${state.connected.size} appareil(s) connecté(s)" else "Préparation de Nearby…")
+            state.connected.forEach { Text(it.name) }
+        }
+        Text("Le réseau local reste disponible pour les ordinateurs et les appareils sans Nearby.")
         Button(onClick = { model.startTeacherServer(settings, individual) }, enabled = !status.running && !model.raceRunning && !individual.raceInProgress, modifier = Modifier.fillMaxWidth()) {
             if (status.running) ServerIndicator() else ActionLabel(R.drawable.ic_play_arrow, "Démarrer le serveur enseignant")
         }

@@ -15,7 +15,10 @@ class TeacherStore(directory: File) {
     private val teacherAccess = TeacherAccess.fromCode(state.teacherCode)
     fun acceptsTeacher(code: String): Boolean = teacherAccess.accepts(code)
     init { file.write(state) }
-    private fun save(next: ServerArchive) { file.write(next); state = next }
+    private fun save(next: ServerArchive) {
+        val revision = next.copy(stateRevision = Math.addExact(state.stateRevision, 1))
+        file.write(revision); state = revision
+    }
 
     @Synchronized fun publish(session: SessionConfig) {
         session.validate()
@@ -30,7 +33,7 @@ class TeacherStore(directory: File) {
         require(validId(deviceId) && deviceName.isNotBlank() && deviceName.length <= 100)
         val session = state.sessions.firstOrNull { it.id == state.activeSessionId } ?: error("Aucune séance active.")
         save(state.copy(devices = state.devices.filterNot { it.id == deviceId } + DeviceInfo(deviceId, deviceName, LocalDateTime.now().toString())))
-        return SessionEnvelope(session = session, claims = state.claims.filter { it.sessionId == session.id }, teacherAccess = teacherAccess)
+        return SessionEnvelope(session = session, claims = state.claims.filter { it.sessionId == session.id }, teacherAccess = teacherAccess, serverId = state.serverId, sessionVersion = state.stateRevision)
     }
 
     @Synchronized fun claim(claim: GroupClaim): GroupClaim {

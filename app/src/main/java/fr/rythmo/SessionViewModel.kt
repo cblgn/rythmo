@@ -29,6 +29,36 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     private val directory = File(application.filesDir, "sessions")
     private val storage = JsonFile(File(directory, "client.json"), ClientArchive.serializer()) { ClientArchive() }
     private val mutex = Mutex()
+    val nearby = NearbyTransport(application)
+    private var nearbyConnected = false
+    var nearbyPanel by mutableStateOf(false); private set
+    val useNearby: Boolean get() = archive.transport == "nearby" || (archive.transport.isEmpty() && archive.trustedServers.isEmpty())
+    fun selectTransport(nearbySelected: Boolean) = action {
+        require(!raceRunning) { "Terminez la course avant de changer de connexion." }
+        nearby.disconnect()
+        save(archive.copy(transport = if (nearbySelected) "nearby" else "https"))
+    }
+    fun retrieveNearby() {
+        if (TeacherService.status.running) { message = "Cet appareil héberge déjà le serveur."; return }
+        nearbyPanel = true
+        nearby.discover(archive.deviceName)
+    }
+    fun dismissNearbyPanel() {
+        nearbyPanel = false
+        if (nearby.state.value.connected.isEmpty()) nearby.disconnect()
+    }
+    fun confirmNearby(id: String, accept: Boolean, host: Boolean, settings: TeacherSettingsViewModel) {
+        if (host) {
+            if (accept) settings.requireUnlocked()
+            TeacherService.nearby?.confirm(id, accept)
+        } else nearby.confirm(id, accept)
+    }
+    fun retrieveNearby(name: String) = action {
+        require(name.isNotBlank() && name.length <= 80)
+        save(archive.copy(deviceName = name.trim()))
+        retrieveNearby()
+    }
+    override fun onCleared() { nearby.close(); super.onCleared() }
     private val passageGuard = PassageGuard()
     private val pdfSlots = Semaphore(2)
     var capturedPassage by mutableStateOf<CapturedPassage?>(null); private set
@@ -50,6 +80,13 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     val clockInterrupted: Boolean get() = archive.activeGroup?.let { it.startElapsedMs != null && it.bootCount != bootCount } == true
 
     init {
+        viewModelScope.launch {
+            nearby.state.collect { state ->
+                val connected = state.connected.isNotEmpty()
+                if (connected && !nearbyConnected) download()
+                nearbyConnected = connected
+            }
+        }
         viewModelScope.launch {
             try {
                 archive = withContext(Dispatchers.IO) { storage.read().let { it.copy(serverUrl = it.serverUrl.replaceFirst("http://", "https://")) }.also(storage::write) }
@@ -86,10 +123,11 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     }
     fun dismissMessage() { message = null }
     val raceRunning: Boolean get() = archive.activeGroup?.let { it.startElapsedMs != null && !it.complete } == true
-    fun startTeacherServer(settings: TeacherSettingsViewModel, individual: RythmoViewModel) {
+    fun startTeacherServer(settings: TeacherSettingsViewModel, individual: RythmoViewModel, enableNearby: Boolean = false) {
         settings.requireUnlocked()
         check(!raceRunning && !individual.raceInProgress) { "Terminez la course locale avant de démarrer le serveur." }
-        getApplication<Application>().startForegroundService(Intent(getApplication(), TeacherService::class.java))
+        nearby.disconnect()
+        getApplication<Application>().startForegroundService(Intent(getApplication(), TeacherService::class.java).putExtra("nearby", enableNearby))
     }
     fun stopTeacherServer(settings: TeacherSettingsViewModel) {
         settings.requireUnlocked()
@@ -125,17 +163,20 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         message = "Serveur associé."
     }
     fun dismissServerCandidate() { candidateServer = null }
-    private fun client() = SyncClient(archive.serverUrl, archive.pairingCode,
-        requireNotNull(archive.trustedServers[archive.serverUrl]) { "Associez ce serveur dans l’accès professeur." })
+    private fun client() = SessionSyncClient(if (useNearby) nearby else HttpsMessageTransport(SyncClient(archive.serverUrl, archive.pairingCode,
+        requireNotNull(archive.trustedServers[archive.serverUrl]) { "Associez ce serveur dans l’accès professeur." })))
+    private fun requireGroupServer(group: RaceGroup) {
+        require(group.sourceServerId == null || group.sourceServerId == archive.serverId) { "Reconnectez le serveur d’origine de cette série." }
+        require(group.sourceServerId != null || group.sourceUrl == null || group.sourceUrl == archive.serverUrl) { "Reconnectez le serveur d’origine de cette série." }
+    }
     fun download() = action {
+        require(!raceRunning) { "La course continue hors connexion. Synchronisez après l’arrivée." }
         networkBusy = true
         try {
             val downloaded = withContext(Dispatchers.IO) { client().download(archive.deviceId, archive.deviceName) }
-            val current = archive.activeGroup
-            require(current == null || current.complete || current.session.id == downloaded.session.id) { "Terminez ou clôturez la série en cours avant de changer de séance." }
-            save(archive.copy(session = downloaded.session, teacherAccess = downloaded.teacherAccess,
-                activeGroupId = if (current != null && current.session.id != downloaded.session.id) null else archive.activeGroupId))
+            save(archive.withSnapshot(downloaded))
             claims = downloaded.claims
+            nearbyPanel = false
             message = "Séance reçue : ${downloaded.session.schoolClass}, ${downloaded.session.distanceMeters} m."
         } finally { networkBusy = false }
     }
@@ -145,13 +186,14 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         require(pupilIds.size in 1..MAX_GROUP_SIZE)
         val pupils = session.pupils.filter { it.id in pupilIds }
         require(pupils.size == pupilIds.size)
-        val group = RaceGroup(session = session, runners = pupils.map { RunnerRecord(pupil = it) })
-        // Persist the group ID before the network request so retries reuse the same reservation.
+        val group = RaceGroup(session = session, runners = pupils.map { RunnerRecord(pupil = it) }, sourceServerId = archive.serverId, sourceUrl = if (useNearby) null else archive.serverUrl)
+        // Persist the group ID before the network request so retries reuse the same group assignment.
         save(archive.copy(groups = archive.groups + group, activeGroupId = group.id))
         claimGroup(group)
     }
     fun retryClaim() = action { claimGroup(requireNotNull(archive.activeGroup)) }
     private suspend fun claimGroup(group: RaceGroup) {
+        requireGroupServer(group)
         networkBusy = true
         try {
             val claim = GroupClaim(group.session.id, group.id, archive.deviceId, archive.deviceName, group.runners.map { it.pupil.id })
@@ -215,7 +257,10 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         passageGuard.consumeUndo(runnerId)
         pdfErrors = pdfErrors - runnerId
     }
-    fun requestUpload() { teacherError = null; teacherRequest = TeacherRequest(TeacherAction.UPLOAD) }
+    fun requestUpload() {
+        if (raceRunning) { message = "Terminez la course avant d’envoyer les bilans."; return }
+        if (useNearby && nearby.state.value.connected.isEmpty()) { retrieveNearby(); return }
+        teacherError = null; teacherRequest = TeacherRequest(TeacherAction.UPLOAD) }
     fun requestCloseGroup() { teacherError = null; teacherRequest = TeacherRequest(TeacherAction.CLOSE_GROUP) }
     fun requestAbandon(runnerId: String) { teacherError = null; teacherRequest = TeacherRequest(TeacherAction.ABANDON_RUNNER, runnerId) }
     fun cancelTeacherAction() { if (!checkingTeacher) { teacherRequest = null; teacherError = null } }
@@ -301,10 +346,14 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
     }
     private suspend fun uploadAuthorized(teacherCode: String) {
+        require(!raceRunning) { "Terminez la course avant d’envoyer les bilans." }
         networkBusy = true
         var count = 0
         try {
             for (groupSnapshot in archive.groups.filter { it.claimed }) {
+                if (groupSnapshot.runners.none { it.closed(groupSnapshot.session) && it.syncedRevision != it.revision }) continue
+                if (groupSnapshot.sourceServerId != null && groupSnapshot.sourceServerId != archive.serverId) continue
+                requireGroupServer(groupSnapshot)
                 for (snapshot in groupSnapshot.runners.filter { it.closed(groupSnapshot.session) && it.syncedRevision != it.revision }) {
                     if (snapshot.finished(groupSnapshot.session) && (snapshot.pdfRevision != snapshot.revision || !reportFile(snapshot).isFile)) {
                         generateReport(groupSnapshot.id, snapshot.id)
@@ -324,7 +373,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
             val pending = archive.groups.sumOf { g -> g.runners.count { it.closed(g.session) && it.syncedRevision != it.revision } }
-            message = "$count bilan(s) envoyé(s). " + if (pending == 0) "Tous les résultats terminés sont reçus par le professeur." else "$pending bilan(s) en attente de PDF. Réessayez après leur génération."
+            message = "$count bilan(s) envoyé(s). " + if (pending == 0) "Tous les résultats terminés sont reçus par le professeur." else "$pending bilan(s) conservé(s) : vérifiez les PDF ou reconnectez leur professeur d’origine."
         } finally { networkBusy = false }
     }
 }

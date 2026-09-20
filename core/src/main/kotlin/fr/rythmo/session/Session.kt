@@ -158,6 +158,8 @@ data class RaceGroup(
     val startedAt: String? = null,
     val startElapsedMs: Long? = null,
     val bootCount: Int? = null,
+    val sourceServerId: String? = null,
+    val sourceUrl: String? = null,
 ) {
     val complete: Boolean get() = runners.all { it.closed(session) }
     fun record(runnerId: String, elapsed: Long): RaceGroup {
@@ -194,6 +196,7 @@ data class ClientArchive(
     val serverUrl: String = "https://127.0.0.1:8765", val pairingCode: String = "",
     val session: SessionConfig? = null, val groups: List<RaceGroup> = emptyList(), val activeGroupId: String? = null,
     val trustedServers: Map<String, String> = emptyMap(),
+    val transport: String = "", val serverId: String? = null,
     val teacherAccess: TeacherAccess? = null, val teacherAttempts: TeacherAttempts = TeacherAttempts(),
 ) {
     val activeGroup: RaceGroup? get() = groups.find { it.id == activeGroupId }

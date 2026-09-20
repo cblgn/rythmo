@@ -360,3 +360,9 @@ Passage groupé : capturer l’instant, sélectionner, sauvegarder le lot atomiq
 Protocole 3 : synchronisation HTTPS uniquement sur 8765, console professeur uniquement en boucle locale sur 8767. L’association par PIN local et comparaison du code de vérification épingle le certificat complet ; aucun repli HTTP. Les clés PC restent dans server-data/tls/ ; les clés Android dans Android Keystore. Ne jamais versionner ces fichiers.
 
 Identité choisie : design 1 « Terre battue », orange brûlé et ivoire, piste à trois couloirs verticale, point blanc conservé et mot Rythmo en italique comme le design 3. Le bleu reste réservé à l’allure équivalente, indépendamment de la couleur principale du thème.
+
+## Working language and Nearby MVP
+
+Use English for new commit messages, issue and PR titles/descriptions, and technical comments. Keep the application UI and user conversation in French. The one-time translation of the existing French public commits was explicitly authorized; ordinary work must retain all branch protections.
+
+Nearby Connections P2P_STAR is authorized for Android. Keep SDK dependencies inside Android infrastructure; share JSON synchronization and domain validation with HTTPS. Never transmit passages live. Persist timing locally, retrieve the session after explicit association, and manually upload finished results/PDFs with teacher authorization. A reconnect must not overwrite local races or send them to a different teacher server.
