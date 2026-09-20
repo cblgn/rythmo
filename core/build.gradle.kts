@@ -14,6 +14,7 @@ tasks.jacocoTestReport {
     reports { xml.required.set(true); html.required.set(true) }
 }
 dependencies {
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     api("org.nanohttpd:nanohttpd:2.3.1")
     testImplementation("junit:junit:4.13.2")

@@ -9,10 +9,12 @@ import kotlinx.coroutines.*
 
 class TeacherService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var destroyed = false
+    @Volatile private var destroyed = false
     private var server: TeacherServer? = null
     private var admin: TeacherServer? = null
     private var discovery: DiscoveryResponder? = null
+    @Volatile private var store: TeacherStore? = null
+    private var nearbyHost: NearbySessionHost? = null
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
@@ -25,6 +27,7 @@ class TeacherService : Service() {
         scope.launch {
             try {
                 val store = TeacherStore(File(filesDir, "teacher"))
+                this@TeacherService.store = store
                 val identity = AndroidTeacherIdentity.load()
                 ensureActive()
                 synchronized(this@TeacherService) {
@@ -42,9 +45,23 @@ class TeacherService : Service() {
             }
         }
     }
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_NOT_STICKY
+    fun advertiseNearby() {
+        val current = store ?: return
+        if (nearbyHost != null && nearby?.state?.value?.error == null) return
+        nearbyHost?.close()
+        val transport = NearbyTransport(this)
+        nearbyReference = java.lang.ref.WeakReference(transport)
+        nearbyHost = NearbySessionHost(transport, current).also { it.start() }
+    }
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.getBooleanExtra("nearby", false) == true) {
+            scope.launch { while (store == null && !destroyed) delay(100); withContext(Dispatchers.Main) { if (!destroyed) advertiseNearby() } }
+        }
+        return START_NOT_STICKY
+    }
     override fun onDestroy() {
         scope.cancel()
+        nearbyHost?.close(); nearbyHost = null; nearbyReference.clear()
         synchronized(this) {
             destroyed = true
             discovery?.close(); server?.stop(); admin?.stop()
@@ -52,6 +69,10 @@ class TeacherService : Service() {
         }
         super.onDestroy()
     }
-    companion object { @Volatile var status = TeacherStatus(false) }
+    companion object {
+        @Volatile var status = TeacherStatus(false)
+        private var nearbyReference = java.lang.ref.WeakReference<NearbyTransport>(null)
+        val nearby: NearbyTransport? get() = nearbyReference.get()
+    }
 }
 data class TeacherStatus(val running: Boolean, val adminKey: String = "", val pairingCode: String = "", val error: String? = null, val verificationCode: String = "")
