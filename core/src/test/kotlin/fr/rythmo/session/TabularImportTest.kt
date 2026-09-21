@@ -49,4 +49,24 @@ class TabularImportTest {
     @Test fun `xml entities are rejected without reading external resources`() {
         assertThrows(IllegalArgumentException::class.java) { workbook("""<!DOCTYPE worksheet [<!ENTITY x SYSTEM "file:///private">]><worksheet>&x;</worksheet>""") }
     }
+    @Test(timeout = 2000) fun `DTD variants are rejected before any network connection`() {
+        java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { server ->
+            server.soTimeout = 100
+            val address = "http://127.0.0.1:${server.localPort}/external.xml"
+            val declarations = listOf(
+                "<!DOCTYPE worksheet SYSTEM \"$address\">",
+                "<!DOCTYPE worksheet [<!ENTITY % remote SYSTEM \"$address\">%remote;]>",
+                "<!DOCTYPE worksheet [<!ENTITY remote SYSTEM \"$address\">]>",
+                "<!DOCTYPE worksheet [<!ENTITY local \"value\">]>",
+            )
+            declarations.forEach { declaration ->
+                val failure = assertThrows(IllegalArgumentException::class.java) {
+                    workbook(declaration + "<worksheet><row><c r=\"A1\"><v>1</v></c></row></worksheet>")
+                }
+                assertEquals("DTD is not supported", failure.cause?.message)
+            }
+            assertThrows(java.net.SocketTimeoutException::class.java) { server.accept().close() }
+        }
+    }
+
 }
