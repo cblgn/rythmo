@@ -38,6 +38,15 @@ class TeacherUiTest {
     private fun await(condition: () -> Boolean) {
         compose.waitUntil(10000) { org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle(); condition() }
     }
+    private fun reviewDraft() {
+        val label = "Vérifier ma séance"
+        compose.onNodeWithText(label).performScrollTo()
+        // Compose can be idle while the ViewModel is still saving the draft on IO.
+        await {
+            compose.onAllNodes(hasText(label) and isEnabled()).fetchSemanticsNodes().size == 1
+        }
+        compose.onNodeWithText(label).assertIsEnabled().performClick()
+    }
     @Test fun `PIN setup requires recovery acknowledgement then rejects wrong PIN and offers recovery`() {
         val m = settings(false)
         compose.setContent { RythmoTheme { TeacherLockScreen(m, false) } }
@@ -92,7 +101,7 @@ class TeacherUiTest {
         await { prep.workbook == null }
         assertEquals(60000L,prep.data.tables.last().tables.getValue(Sex.GIRL).first().timeMs)
         compose.onNodeWithText("Note totale sur").performScrollTo().performTextReplacement("13")
-        compose.onNodeWithText("Vérifier ma séance").performScrollTo().performClick();await { prep.preview != null }
+        reviewDraft();await { prep.preview != null }
         assertEquals(80,prep.preview!!.assessment!!.performanceMaxTenths)
         // Permission UI is tested separately; invoke the same durable publication action here.
         prep.publish(s,{false}) { published++ };await { prep.sessionCode != null }
@@ -118,19 +127,19 @@ class TeacherUiTest {
         compose.onNodeWithText("Nom affiché aux élèves").performTextReplacement("Prof Fiction")
         compose.onNodeWithText("Titre de la séance").performTextReplacement("Course test")
         compose.onNodeWithText("Distance (m)").performScrollTo().performTextReplacement("2000")
-        compose.onNodeWithText("Vérifier ma séance").performScrollTo().performClick();await { prep.error!=null }
+        reviewDraft();await { prep.error!=null }
         assertNull(prep.preview);assertTrue(prep.error!!.contains("1000"))
         compose.onNodeWithText("Distance (m)").performScrollTo().performTextReplacement("1000")
         compose.onNodeWithText("Nombre de tours").performTextReplacement("?")
         compose.onNodeWithText("Note totale sur").performScrollTo().performTextReplacement("?")
-        compose.onNodeWithText("Vérifier ma séance").performScrollTo().performClick();await { prep.error!=null }
+        reviewDraft();await { prep.error!=null }
         assertNull(prep.preview)
         compose.onNodeWithText("Nombre de tours").performScrollTo().performTextReplacement("6")
         compose.onNodeWithText("Note totale sur").performScrollTo().performTextReplacement("5")
-        compose.onNodeWithText("Vérifier ma séance").performScrollTo().performClick();await { prep.error!=null }
+        reviewDraft();await { prep.error!=null }
         assertNull(prep.preview)
         compose.onNodeWithText("Note totale sur").performScrollTo().performTextReplacement("12")
-        compose.onNodeWithText("Vérifier ma séance").performScrollTo().performClick();await { prep.preview!=null }
+        reviewDraft();await { prep.preview!=null }
         assertEquals("Course test",prep.preview!!.title)
         compose.onNodeWithText("Modifier").performClick();assertNull(prep.preview)
         compose.runOnIdle { blocked.value=true }
