@@ -139,59 +139,20 @@ class RythmoViewModelTest {
         }
     }
 
-    @Test fun `a final correction preserves the original and recalculates adjacent differences and total`() {
-        val model = completedModel()
-        model.editLap(2)
-        assertEquals(2, model.state.editingLapNumber)
-        assertNull(model.state.report)
-        model.setSeconds("25")
-        assertTrue(model.submitTime())
-        assertEquals(listOf(89_000L, 85_000L, 87_000L, 89_000L, 87_000L), model.state.laps.map { it.durationMs })
-        assertEquals(listOf(null, -4_000L, 2_000L, 2_000L, -2_000L), model.state.laps.map { it.differenceMs })
-        assertEquals(437_000L, model.state.result?.totalMs)
-        assertEquals(87_400L, model.state.result?.averageLapMs)
-        assertEquals(10_000L, model.state.result?.cumulativeIrregularityMs)
-        val correction = model.state.report!!.corrections.single()
-        assertEquals(89_000L, correction.originalMs)
-        assertEquals(85_000L, correction.correctedMs)
-        assertEquals(2, correction.lapNumber)
-    }
-
-    @Test fun `a corrected passage cannot be corrected twice even after state restoration`() {
+    @Test fun `legacy corrected times are retained but pending edits are discarded`() {
         val handle = SavedStateHandle()
-        val model = completedModel(handle)
-        model.editLap(2); model.setSeconds("25"); assertTrue(model.confirmCorrection())
+        completedModel(handle)
+        handle["original2"] = 89_000L
+        handle["corrected2"] = 85_000L
+        handle["correctedAt2"] = "2026-09-20T10:00:00"
+        handle["editingLapNumber"] = 3
         val restored = RythmoViewModel(handle)
-        assertEquals(model.state, restored.state)
-        restored.editLap(2)
         assertNull(restored.state.editingLapNumber)
-        assertFalse(restored.confirmCorrection())
-        assertEquals(1, restored.state.corrections.size)
-        restored.editLap(3); restored.setSeconds("26"); assertTrue(restored.confirmCorrection())
-        assertEquals(2, restored.state.corrections.size)
-        assertEquals(85_000L, restored.state.laps[1].durationMs)
-    }
-
-    @Test fun `invalid unchanged or cancelled edits do not consume the single correction`() {
-        val model = completedModel()
-        model.editLap(1)
-        assertFalse(model.confirmCorrection())
-        model.setSeconds("60")
-        assertFalse(model.confirmCorrection())
-        assertTrue(model.state.corrections.isEmpty())
-        assertEquals(441_000L, model.state.result?.totalMs)
-        model.cancelCorrection()
-        assertNull(model.state.editingLapNumber)
-        model.editLap(1); model.setSeconds("28"); assertTrue(model.confirmCorrection())
-        assertEquals(1, model.state.corrections.size)
-    }
-
-    @Test fun `corrections are only allowed after the fifth passage`() {
-        val model = startedModel()
-        model.setMinutes("1"); model.setSeconds("29"); model.submitTime()
-        model.editLap(1)
-        assertNull(model.state.editingLapNumber)
-        assertTrue(model.state.corrections.isEmpty())
+        assertEquals(85_000L, restored.state.corrections.single().correctedMs)
+        assertNotNull(restored.state.report)
+        val before = restored.state.cumulativeTimesMs
+        assertFalse(restored.submitTime())
+        assertEquals(before, restored.state.cumulativeTimesMs)
     }
 
     @Test fun `manual differences always refer to the immediately preceding lap`() {
@@ -215,8 +176,6 @@ class RythmoViewModelTest {
     @Test fun `reset clears identity times correction allowance and saved state for the next pupil`() {
         val handle = SavedStateHandle()
         val model = completedModel(handle)
-        model.editLap(2); model.setSeconds("25"); assertTrue(model.confirmCorrection())
-        model.editLap(3); model.setSeconds("60"); assertFalse(model.confirmCorrection())
         model.resetEvaluation()
         assertEquals(RythmoState(), model.state)
         val restored = RythmoViewModel(handle)
@@ -225,7 +184,6 @@ class RythmoViewModelTest {
         assertFalse(restored.state.canStart)
         val next = completedModel(handle)
         assertTrue(next.state.corrections.isEmpty())
-        next.editLap(2); next.setSeconds("24"); assertTrue(next.confirmCorrection())
-        assertEquals(89_000L, next.state.corrections.single().originalMs)
+        assertFalse(next.submitTime())
     }
 }

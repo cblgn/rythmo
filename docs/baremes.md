@@ -8,6 +8,10 @@ ajouté plus tard. Excel n'est ni requis ni une dépendance de l'application.
 Le dépôt public contient uniquement des exemples inventés. Les tables reçues
 pour un cours réel et leur extraction restent locales, hors de Git.
 
+La V1 utilise désormais le [formulaire Android natif](native-teacher-preparation.md),
+avec import séparé des élèves et des tables de performance. Le barème source reste
+figé ; sa contribution est pondérée selon le maximum total choisi par le professeur.
+
 ## Données du barème
 
 | Ensemble | Champs |
@@ -39,7 +43,10 @@ illustre deux profils et deux composantes. Les valeurs sont inventées ; ce
 n'est pas une recommandation pédagogique. Cet exemple n'est pas chargé comme
 barème actif.
 
-Le moteur général de sous-notes et son éditeur restent à implémenter. Le MVP
-actuel utilise son barème de démonstration à coefficients, avec échelle maximale
-configurable. La distance, le nombre de tours identiques ou la distance entre
-passages sont déjà configurables indépendamment de la notation.
+Le premier moteur configurable est implémenté : tables de performance par paliers,
+comparaison des intervalles successifs avec seuil réglable, maxima configurables et
+conversion sur 20. Il utilise `AssessmentRubric` (version 1), pas le format générique
+d’exemple ci-dessus. L’éditeur et les imports sont décrits dans
+[le parcours professeur](teacher-preparation.md). Les anciennes séances continuent
+d’utiliser leur barème de démonstration figé. Les épreuves à durée imposée restent
+à implémenter.

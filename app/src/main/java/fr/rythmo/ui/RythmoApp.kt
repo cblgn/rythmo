@@ -93,7 +93,6 @@ fun RythmoApp(model: RythmoViewModel = viewModel(), onHome: (() -> Unit)? = null
         RythmoScreen.RACE -> TimingScreen(
             state = state, onMinutes = model::setMinutes, onSeconds = model::setSeconds,
             onAdd = model::submitTime, onBack = model::editStudent,
-            onEditLap = model::editLap, onCancelCorrection = model::cancelCorrection,
             onStartStopwatch = model::startStopwatch,
             onAutomaticPassage = { model.recordAutomaticPassage() },
             onReset = { resetRequested = true },

@@ -86,7 +86,7 @@ class SessionSyncClient(private val transport: MessageTransport) {
     }
     fun download(deviceId: String, name: String): SessionEnvelope = request<SessionEnvelope>("sync_request",
         sessionJson.encodeToJsonElement(SyncRequest(deviceId, name))).also {
-        require(it.protocol == PROTOCOL_VERSION) { "Version de séance incompatible." }; it.session.validate()
+        require(supportedProtocol(it.protocol)) { "Version de séance incompatible." }; it.session.validate()
     }
     fun claim(value: GroupClaim): GroupClaim = request("claim_group", sessionJson.encodeToJsonElement(value))
     fun upload(value: ResultUpload, teacherCode: String): Receipt = request("submit_result", sessionJson.encodeToJsonElement(SubmitResult(value, teacherCode)))

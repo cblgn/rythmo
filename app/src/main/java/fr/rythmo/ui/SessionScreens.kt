@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -41,7 +42,12 @@ fun RythmoWorkspace(
     model: SessionViewModel = viewModel(),
     settings: TeacherSettingsViewModel,
     individual: RythmoViewModel = viewModel(),
+    onDocument: (Uri) -> Unit = {},
 ) {
+    val documentPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(onDocument) }
+    val onPickDocument = { documentPicker.launch(arrayOf("text/*", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream", "application/vnd.ms-excel")) }
     val archive = model.archive
     val snack = remember { SnackbarHostState() }
     var menuOpen by remember { mutableStateOf(false) }
@@ -66,6 +72,7 @@ fun RythmoWorkspace(
                     contentDescription = "Logo Rythmo", modifier = Modifier.size(36.dp))
                 Column {
                     Text("Rythmo", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, fontStyle = FontStyle.Italic, letterSpacing = (-1).sp)
+                    Text(if (settings.requested) "Professeur" else "Élève", style = MaterialTheme.typography.labelSmall)
                     if (serverActive) ServerIndicator()
                 }
             }
@@ -87,13 +94,20 @@ fun RythmoWorkspace(
                 }
                 setupRequired || settings.requested -> {
                     if (!settings.unlocked || settings.recoveryCode != null) TeacherLockScreen(settings, setupRequired)
-                    else TeacherScreen(model, settings, individual)
+                    else TeacherScreen(model, settings, individual, onPickDocument)
                 }
                 settings.individual -> RythmoApp(model = individual, onHome = settings::returnToGroup)
                 archive.activeGroup != null -> GroupScreen(model, requireNotNull(archive.activeGroup))
                 else -> PreparationScreen(model)
             }
         }
+    }
+    if (settings.stopServerRequested && settings.unlocked && settings.recoveryCode == null) {
+        AlertDialog(onDismissRequest = settings::cancelServerStop,
+            title = { Text("Arrêter le partage de séance ?") },
+            text = { Text("Les courses et les bilans restent enregistrés.") },
+            confirmButton = { TextButton(onClick = { model.stopTeacherServer(settings); settings.cancelServerStop() }) { Text("Arrêter") } },
+            dismissButton = { TextButton(onClick = settings::cancelServerStop) { Text("Continuer le partage") } })
     }
     NearbyDialogs(model, settings)
     model.teacherRequest?.let { request -> TeacherActionDialog(model, request) }
@@ -183,7 +197,7 @@ internal fun PreparationContent(
         if (session != null) {
             HorizontalDivider()
             Text("${session.schoolClass} · ${session.courseLabel}", style = MaterialTheme.typography.titleLarge)
-            Text("${session.date} · ${session.rubric.name}\nChoisissez de 1 à $MAX_GROUP_SIZE élèves. ")
+            Text("${session.date} · ${session.rubricName}\nChoisissez de 1 à $MAX_GROUP_SIZE élèves. ")
             session.pupils.forEach { pupil ->
                 val enabled = pupil.id !in assigned && (pupil.id in selected || selected.size < MAX_GROUP_SIZE)
                 Row(Modifier.fillMaxWidth().clickable(enabled = enabled) {
@@ -252,7 +266,7 @@ private fun GroupScreen(model: SessionViewModel, group: RaceGroup) {
             dismissButton = { TextButton(onClick = { undoRunner = null }) { Text("Conserver") } })
     }
     val captured = model.capturedPassage
-    var selected by remember(captured) { mutableStateOf(captured?.eligibleIds ?: emptySet()) }
+    var selected by rememberSaveable(group.id, captured?.elapsedMs) { mutableStateOf(captured?.eligibleIds ?: emptySet()) }
     BackHandler(captured != null) { model.dismissCapture() }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         GroupClock(group) { model.elapsedMs }
@@ -298,36 +312,23 @@ private fun GroupScreen(model: SessionViewModel, group: RaceGroup) {
 @Composable
 private fun RunnerDialog(model: SessionViewModel, group: RaceGroup, runner: RunnerRecord, dismiss: () -> Unit) {
     val context = LocalContext.current
-    var editing by remember(runner.id) { mutableStateOf<Int?>(null) }
-    var minutes by remember(editing) { mutableStateOf("") }
-    var seconds by remember(editing) { mutableStateOf("") }
     var localError by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(runner.revision) { editing = null }
     AlertDialog(onDismissRequest = dismiss, title = { Text(runner.pupil.label) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(if (runner.abandoned) "Abandon · non noté" else "Note provisoire : ${runner.grade(group.session)?.let(::formatPoints)} / ${formatPoints(group.session.rubric.maxGradeTenths)}")
-                Text("${group.session.rubric.name} · La régularité n’influence pas encore la note.", style = MaterialTheme.typography.bodySmall)
+                Text(if (runner.abandoned) "Abandon · non noté" else "Note : ${runner.grade(group.session)?.let(::formatPoints)} / ${formatPoints(group.session.maxGradeTenths)}")
+                Text(group.session.rubricName, style = MaterialTheme.typography.bodySmall)
+                runner.assessmentScore(group.session)?.let { score ->
+                    Text("Performance ${formatPoints(score.performanceTenths)} / ${formatPoints(score.performanceMaxTenths)}")
+                    Text("Comparaison des tours ${formatPoints(score.comparisonTenths)} / ${formatPoints(score.comparisonMaxTenths)}")
+                    Text("Note sur 20 : ${formatPoints(score.outOf20Tenths)}", fontWeight = FontWeight.Bold)
+                }
                 runner.laps(group.session).forEach { lap ->
                     HorizontalDivider()
                     Text("${group.session.passageLabel(lap.number)} · ${TimeFormat.duration(lap.durationMs)} · ${lap.differenceMs?.let(TimeFormat::difference) ?: "—"}", color = paceColor(lap.paceChange))
                     runner.corrections.find { it.number == lap.number }?.let {
                         Text("Initial ${TimeFormat.duration(it.originalMs)} → corrigé ${TimeFormat.duration(it.correctedMs)}\nModification utilisée", style = MaterialTheme.typography.bodySmall)
-                    } ?: if (runner.finished(group.session)) {
-                        TextButton(onClick = { editing = lap.number }) { Text("Corriger ${group.session.passageLabel(lap.number)}") }
-                    } else Unit
-                }
-                editing?.let { number ->
-                    Text("Une seule correction autorisée pour ce passage. Le professeur verra les deux temps.")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(minutes, { minutes = it }, label = { Text("min") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-                        OutlinedTextField(seconds, { seconds = it }, label = { Text("sec") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
                     }
-                    Button(onClick = { model.correct(runner.id, number, minutes, seconds) }) { Text("Confirmer la correction") }
-                    TextButton(onClick = { editing = null }) { ActionLabel(R.drawable.ic_close, "Annuler") }
-                    model.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
                 if (runner.finished(group.session)) {
                     if (runner.pdfRevision == runner.revision) OutlinedButton(onClick = {
@@ -342,60 +343,4 @@ private fun RunnerDialog(model: SessionViewModel, group: RaceGroup, runner: Runn
                 localError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }, confirmButton = { TextButton(onClick = dismiss) { Text("Fermer") } })
-}
-
-@Composable
-private fun TeacherScreen(model: SessionViewModel, settings: TeacherSettingsViewModel, individual: RythmoViewModel) {
-    val context = LocalContext.current
-    var status by remember { mutableStateOf(TeacherService.status) }
-    var nearbyTransport by remember { mutableStateOf(TeacherService.nearby) }
-    var addresses by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
-        while (true) {
-            status = TeacherService.status
-            nearbyTransport = TeacherService.nearby
-            addresses = runCatching { NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }
-                .filterIsInstance<Inet4Address>().filter { !it.isLoopbackAddress }.joinToString("\n") { "https://${it.hostAddress}:8765" } }.getOrDefault("")
-            delay(1000)
-        }
-    }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        TextButton(onClick = settings::leaveSettings) { ActionLabel(R.drawable.ic_lock, "Retour aux élèves · verrouiller") }
-        TextButton(onClick = settings::openIndividual) { Text("Évaluation individuelle · 2000 m") }
-        if (model.raceRunning || individual.raceInProgress) Text("Le démarrage du serveur sera disponible après la course locale.")
-        var serverUrl by remember { mutableStateOf(model.archive.serverUrl) }
-        Text("Associer le professeur", style = MaterialTheme.typography.titleLarge)
-        OutlinedTextField(serverUrl, { serverUrl = it }, label = { Text("Adresse HTTPS") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(onClick = { model.inspectServer(serverUrl, settings) }, enabled = !model.networkBusy) { ActionLabel(R.drawable.ic_wifi, "Vérifier ce serveur") }
-        model.candidateServer?.let { (url, pin) ->
-            Text(fr.rythmo.sync.TeacherTls.verificationCode(pin), style = MaterialTheme.typography.titleLarge)
-            Text("Comparez ce code à celui affiché sur le serveur professeur.")
-            Button(onClick = { model.trustServer(settings) }) { ActionLabel(R.drawable.ic_check, "Les codes correspondent") }
-            TextButton(onClick = model::dismissServerCandidate) { ActionLabel(R.drawable.ic_close, "Annuler") }
-        }
-        HorizontalDivider()
-        Text("Préparer et collecter", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        NearbyButton("Rendre la séance disponible à proximité", !model.raceRunning && !individual.raceInProgress) {
-            model.startTeacherServer(settings, individual, enableNearby = true)
-        }
-        nearbyTransport?.let { nearby ->
-            val state by nearby.state.collectAsState()
-            Text(if (state.error != null) nearbyStatus(state) else if (state.advertising) "Séance disponible · ${state.connected.size} appareil(s) connecté(s)" else "Préparation de Nearby…")
-            state.connected.forEach { Text(it.name) }
-        }
-        Text("Le réseau local reste disponible pour les ordinateurs et les appareils sans Nearby.")
-        Button(onClick = { model.startTeacherServer(settings, individual) }, enabled = !status.running && !model.raceRunning && !individual.raceInProgress, modifier = Modifier.fillMaxWidth()) {
-            if (status.running) ServerIndicator() else ActionLabel(R.drawable.ic_play_arrow, "Démarrer le serveur enseignant")
-        }
-        if (status.running) {
-            Text("Vérification : ${status.verificationCode}")
-            Text("Code d’association : ${status.pairingCode}", style = MaterialTheme.typography.titleLarge)
-            Text(addresses.ifEmpty { "Activez le Wi-Fi ou le point d’accès pour connecter d’autres appareils." })
-            Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://127.0.0.1:8767/#${status.adminKey}"))) }, modifier = Modifier.fillMaxWidth()) { Text("Ouvrir classes, barèmes et résultats") }
-            OutlinedButton(onClick = { model.stopTeacherServer(settings) }, modifier = Modifier.fillMaxWidth()) { ActionLabel(R.drawable.ic_stop, "Arrêter le serveur") }
-        }
-        status.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }) { ActionLabel(R.drawable.ic_wifi, "Réglages Wi-Fi / point d’accès") }
-        Text("Vous pouvez aussi utiliser le serveur PC. Le téléphone et le PC conservent chacun leurs propres séances : utilisez le même serveur au début et à la fin du cours.", style = MaterialTheme.typography.bodyMedium)
-    }
 }

@@ -25,11 +25,12 @@ data class CapturedPassage(val groupId: String, val elapsedMs: Long, val eligibl
 
 data class TeacherRequest(val action: TeacherAction, val runnerId: String? = null)
 
-class SessionViewModel(application: Application) : AndroidViewModel(application) {
+class SessionViewModel internal constructor(application: Application, private val exchangeOverride: MessageTransport?,
+    val nearby: LocalTransport = NearbyTransport(application)) : AndroidViewModel(application) {
+    constructor(application: Application) : this(application, null)
     private val directory = File(application.filesDir, "sessions")
     private val storage = JsonFile(File(directory, "client.json"), ClientArchive.serializer()) { ClientArchive() }
     private val mutex = Mutex()
-    val nearby = NearbyTransport(application)
     private var nearbyConnected = false
     var nearbyPanel by mutableStateOf(false); private set
     val useNearby: Boolean get() = archive.transport == "nearby" || (archive.transport.isEmpty() && archive.trustedServers.isEmpty())
@@ -163,7 +164,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         message = "Serveur associé."
     }
     fun dismissServerCandidate() { candidateServer = null }
-    private fun client() = SessionSyncClient(if (useNearby) nearby else HttpsMessageTransport(SyncClient(archive.serverUrl, archive.pairingCode,
+    private fun client() = SessionSyncClient(exchangeOverride ?: if (useNearby) nearby else HttpsMessageTransport(SyncClient(archive.serverUrl, archive.pairingCode,
         requireNotNull(archive.trustedServers[archive.serverUrl]) { "Associez ce serveur dans l’accès professeur." })))
     private fun requireGroupServer(group: RaceGroup) {
         require(group.sourceServerId == null || group.sourceServerId == archive.serverId) { "Reconnectez le serveur d’origine de cette série." }
@@ -201,7 +202,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             check(confirmed == claim) { "Confirmation de groupe incohérente." }
             save(archive.replace(group.copy(claimed = true)))
             claims = claims.filterNot { it.groupId == claim.groupId } + claim
-            message = "Groupe prêt. Le Wi-Fi peut être coupé pendant la course."
+            message = "Groupe prêt."
         } finally { networkBusy = false }
     }
     fun startRace() = action {
@@ -309,15 +310,6 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         require(current == null || current.complete || current.id == id) { "Terminez la série active avant de changer de bilan." }
         require(archive.groups.any { it.id == id })
         save(archive.copy(activeGroupId = id))
-    }
-    fun correct(runnerId: String, number: Int, minutes: String, seconds: String) = action {
-        val validation = RaceInput.validateLap(minutes, seconds)
-        require(validation is SplitValidation.Accepted) { (validation as SplitValidation.Invalid).message }
-        val group = requireNotNull(archive.activeGroup)
-        val runner = group.runners.first { it.id == runnerId }.correct(group.session, number, validation.durationMs)
-        save(archive.replace(group.copy(runners = group.runners.map { if (it.id == runnerId) runner else it })))
-        generateReport(group.id, runnerId)
-        message = "Correction enregistrée. Le temps initial est conservé dans le nouveau PDF."
     }
     fun reportFile(runner: RunnerRecord): File = File(directory, "reports/${runner.id}-v${runner.revision}.pdf")
     fun retryReports() {

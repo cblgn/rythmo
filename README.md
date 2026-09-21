@@ -4,6 +4,24 @@
 
 Évaluation de demi-fond hors ligne, pour Android, avec serveur enseignant local sur PC ou téléphone Android.
 
+## Préparer un cours sur Android — V1
+
+Dans **⋮ → Accès professeur → Séance**, importer la classe (CSV/XLSX : NOM,
+Prénom, Sexe) puis le barème de performance filles/garçons. Régler la distance,
+le nombre de tours et le maximum total ; la régularité vaut automatiquement un
+point par comparaison réussie après arrondi des tours à la seconde. Le reste
+pondère la performance issue de la table importée.
+
+**Vérifier ma séance → Rendre la séance disponible** publie une séance figée.
+Sur les tablettes élèves, **Récupérer la séance**, comparer le code avec le
+professeur, puis préparer le groupe. Aucun PC ni réglage Wi-Fi manuel nécessaire.
+Le nom professeur et le titre identifient la séance à rejoindre. Le code des
+bilans est consultable dans l’espace professeur ; il est distinct du PIN local.
+
+Voir [le parcours natif et ses règles de notation](docs/native-teacher-preparation.md).
+La console navigateur conserve le suivi et les PDF, sans préparation/publication.
+Les instructions PC/USB ci-dessous restent des outils de compatibilité et de test.
+
 ## Essayer avec un PC WSL et un téléphone USB
 
 Dans un premier terminal :

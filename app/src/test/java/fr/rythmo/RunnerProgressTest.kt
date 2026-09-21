@@ -36,4 +36,12 @@ class RunnerProgressTest {
         assertEquals("1:23,4", stopwatchTenths(83_499))
         assertEquals("60:00,0", stopwatchTenths(3_600_000))
     }
+    @Test fun `grid responds to runner count available size and large text`() {
+        assertEquals(1, runnerGridColumns(393, 700, 1, 1f))
+        assertEquals(2, runnerGridColumns(393, 700, 8, 1f))
+        assertEquals(4, runnerGridColumns(900, 400, 8, 1f))
+        assertEquals(2, runnerGridColumns(800, 1000, 8, 1f))
+        assertEquals(3, runnerGridColumns(900, 700, 3, 1f))
+        assertEquals(1, runnerGridColumns(320, 600, 8, 1.6f))
+    }
 }

@@ -132,21 +132,13 @@ class StopwatchTest {
         assertEquals(2_000L, model.state.laps[1].differenceMs)
     }
 
-    @Test fun `automatic lap correction preserves the original milliseconds and is allowed only once`() {
+    @Test fun `finished automatic times retain millisecond precision and reject further passages`() {
         val model = ready()
         model.startStopwatch()
         repeat(5) { now += 89_123L; assertTrue(model.recordAutomaticPassage()) }
-        model.editLap(2)
-        assertEquals("", model.state.minutes)
-        assertFalse(model.confirmCorrection())
-        model.setMinutes("1"); model.setSeconds("25")
-        assertTrue(model.confirmCorrection())
-        val correction = model.state.report!!.corrections.single()
-        assertEquals(89_123L, correction.originalMs)
-        assertEquals(85_000L, correction.correctedMs)
-        assertEquals(441_492L, model.state.result?.totalMs)
-        model.editLap(2)
-        assertNull(model.state.editingLapNumber)
+        assertFalse(model.recordAutomaticPassage())
+        assertEquals(445_615L, model.state.result?.totalMs)
+        assertTrue(model.state.corrections.isEmpty())
         assertFalse(model.state.timerRunning)
     }
 }

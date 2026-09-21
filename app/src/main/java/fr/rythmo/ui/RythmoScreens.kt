@@ -162,8 +162,6 @@ fun TimingScreen(
     onOpenPdf: () -> Unit = {},
     onSharePdf: () -> Unit = {},
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
-    onEditLap: (Int) -> Unit = {},
-    onCancelCorrection: () -> Unit = {},
     onStartStopwatch: () -> Unit = {},
     onAutomaticPassage: () -> Unit = {},
     onReset: () -> Unit = {},
@@ -175,14 +173,14 @@ fun TimingScreen(
     val preview = LocalInspectionMode.current
     val listState = rememberLazyListState()
     val result = state.result
-    val manualEntry = state.editingLapNumber != null || (state.nextDistance != null && state.timingMode == TimingMode.MANUAL)
+    val manualEntry = state.nextDistance != null && state.timingMode == TimingMode.MANUAL
     val view = LocalView.current
     DisposableEffect(state.timerRunning, view) {
         val previous = view.keepScreenOn
         if (state.timerRunning) view.keepScreenOn = true
         onDispose { view.keepScreenOn = previous }
     }
-    LaunchedEffect(state.nextDistance, state.editingLapNumber) {
+    LaunchedEffect(state.nextDistance) {
         if (!preview) {
             listState.scrollToItem(0)
             if (manualEntry) minutesFocus.requestFocus()
@@ -202,13 +200,13 @@ fun TimingScreen(
                         "Au départ du coureur, touchez DÉMARRER LE CHRONO. À chaque tour, touchez ENREGISTRER LE PASSAGE. Le chrono s’arrête automatiquement à 2000 m. Gardez le téléphone en main pour ne manquer aucun passage."
                     else if (result == null)
                         "Saisissez le temps de chaque tour de 400 m, pas le cumul. Il peut être plus court, identique ou plus long. Validez avec + ou Terminé."
-                    else "Vous pouvez corriger chaque passage une seule fois. Le professeur verra le temps initial et le temps corrigé. Validez ensuite l’évaluation pour créer le PDF.")
+                    else "Validez l’évaluation pour créer le PDF.")
                 },
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            if (result != null && state.editingLapNumber == null) BottomAction {
+            if (result != null) BottomAction {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     pdfError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                     if (pdfAvailable) {
@@ -245,16 +243,11 @@ fun TimingScreen(
                 item(key = "entry") {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(state.editingLapNumber?.let { "Corriger le passage des ${it * LAP_DISTANCE_METERS} m" }
-                                ?: "Prochain passage : ${state.nextDistance} m", style = MaterialTheme.typography.titleMedium,
+                            Text("Prochain passage : ${state.nextDistance} m", style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                             Text("Temps de ce tour de 400 m · Cumul automatique", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            if (state.editingLapNumber != null) {
-                                Text("Une seule modification est autorisée pour ce passage. Le temps initial restera visible dans le bilan et le PDF.",
-                                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            }
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TimeField(state.minutes, onMinutes, "min", "Minutes", ImeAction.Next,
                                     KeyboardActions(onNext = { secondsFocus.requestFocus() }),
@@ -264,16 +257,13 @@ fun TimingScreen(
                                     KeyboardActions(onDone = { onAdd() }),
                                     Modifier.weight(1f).focusRequester(secondsFocus))
                                 FilledIconButton(onClick = { onAdd() }, modifier = Modifier.size(56.dp)
-                                    .semantics { contentDescription = if (state.editingLapNumber == null) "Ajouter le passage" else "Confirmer la correction unique" }) {
-                                    Text(if (state.editingLapNumber == null) "+" else "✓", style = MaterialTheme.typography.headlineLarge)
+                                    .semantics { contentDescription = "Ajouter le passage" }) {
+                                    Text("+", style = MaterialTheme.typography.headlineLarge)
                                 }
                             }
                             state.inputError?.let {
                                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                            }
-                            if (state.editingLapNumber != null) {
-                                TextButton(onClick = onCancelCorrection) { Text("Annuler la modification") }
                             }
                         }
                     }
@@ -289,7 +279,7 @@ fun TimingScreen(
                             Text("Épreuve terminée", style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
                             Text("5 passages enregistrés · 2000 m", color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Text("Vérifiez vos temps. Une correction par passage est permise ; le professeur verra les deux valeurs.",
+                            Text("Course terminée. Votre bilan est prêt à être créé.",
                                 modifier = Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
@@ -314,8 +304,7 @@ fun TimingScreen(
                 }
             }
             items(state.laps, key = { it.number }) { lap ->
-                PassageRow(lap, state.corrections.find { it.lapNumber == lap.number },
-                    canEdit = result != null && state.editingLapNumber == null, onEdit = { onEditLap(lap.number) })
+                PassageRow(lap, state.corrections.find { it.lapNumber == lap.number })
             }
             if (result != null) item(key = "summary") { SummaryCard(result) }
         }
@@ -368,7 +357,7 @@ private fun TimeField(value: String, onChange: (String) -> Unit, label: String, 
 }
 
 @Composable
-private fun PassageRow(lap: LapResult, correction: LapCorrection? = null, canEdit: Boolean = false, onEdit: () -> Unit = {}) {
+private fun PassageRow(lap: LapResult, correction: LapCorrection? = null) {
     val color = paceColor(lap.paceChange)
     val symbol = when (lap.paceChange) {
         PaceChange.FASTER -> "↑"
@@ -392,8 +381,6 @@ private fun PassageRow(lap: LapResult, correction: LapCorrection? = null, canEdi
         if (correction != null) {
             Text("Initial : ${TimeFormat.duration(correction.originalMs)} → Corrigé : ${TimeFormat.duration(correction.correctedMs)}\nModification utilisée · non modifiable",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else if (canEdit) {
-            TextButton(onClick = onEdit, modifier = Modifier.align(Alignment.End)) { Text("Corriger ${lap.distanceMeters} m") }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }

@@ -29,11 +29,19 @@ class TeacherStore(directory: File) {
             classes = state.classes.filterNot { it.id == cls.id } + cls))
     }
 
+    @Synchronized fun importClass(incoming: SchoolClass): SchoolClass {
+        val existing = state.classes.find { it.id == incoming.id }
+            ?: state.classes.find { it.name == incoming.name && it.level == incoming.level }
+        val merged = ClassImport.reconcile(incoming, existing)
+        save(state.copy(classes = state.classes.filterNot { it.id == merged.id } + merged))
+        return merged
+    }
+
     @Synchronized fun download(deviceId: String, deviceName: String): SessionEnvelope {
         require(validId(deviceId) && deviceName.isNotBlank() && deviceName.length <= 100)
         val session = state.sessions.firstOrNull { it.id == state.activeSessionId } ?: error("Aucune séance active.")
         save(state.copy(devices = state.devices.filterNot { it.id == deviceId } + DeviceInfo(deviceId, deviceName, LocalDateTime.now().toString())))
-        return SessionEnvelope(session = session, claims = state.claims.filter { it.sessionId == session.id }, teacherAccess = teacherAccess, serverId = state.serverId, sessionVersion = state.stateRevision)
+        return SessionEnvelope(protocol = when (session.assessment?.schemaVersion) { null -> PROTOCOL_VERSION; 1 -> ASSESSMENT_PROTOCOL_VERSION; else -> ROUNDED_ASSESSMENT_PROTOCOL_VERSION }, session = session, claims = state.claims.filter { it.sessionId == session.id }, teacherAccess = teacherAccess, serverId = state.serverId, sessionVersion = state.stateRevision)
     }
 
     @Synchronized fun claim(claim: GroupClaim): GroupClaim {
@@ -80,7 +88,7 @@ class TeacherStore(directory: File) {
         }
         val note = clean.runner.grade(session)
         save(state.copy(results = state.results.filterNot { it.upload.runner.id == clean.runner.id } +
-            StoredResult(clean, note, LocalDateTime.now().toString())))
+            StoredResult(clean, note, LocalDateTime.now().toString(), clean.runner.assessmentScore(session))))
         return Receipt(clean.runner.id, clean.runner.revision, note)
     }
 }

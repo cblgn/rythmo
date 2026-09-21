@@ -366,3 +366,30 @@ Identité choisie : design 1 « Terre battue », orange brûlé et ivoire, piste
 Use English for new commit messages, issue and PR titles/descriptions, and technical comments. Keep the application UI and user conversation in French. The one-time translation of the existing French public commits was explicitly authorized; ordinary work must retain all branch protections.
 
 Nearby Connections P2P_STAR is authorized for Android. Keep SDK dependencies inside Android infrastructure; share JSON synchronization and domain validation with HTTPS. Never transmit passages live. Persist timing locally, retrieve the session after explicit association, and manually upload finished results/PDFs with teacher authorization. A reconnect must not overwrite local races or send them to a different teacher server.
+
+## Approved teacher preparation iteration
+
+The latest request removes interval editing in both app modes. Keep historical
+corrections readable and preserve their calculations; retain immediate undo for
+accidental group passages. New configurable distance assessments use performance
+threshold tables plus consecutive-interval comparisons with a configurable signed
+threshold, component maxima and proportional /20 conversion. Six intervals mean
+five comparisons; no comparison score on the first interval. Duration-based and
+multi-phase assessments are deferred. See docs/teacher-preparation.md.
+
+Local CSV/XLSX roster and table imports, a preview with column mapping, stable pupil
+IDs on reimport, and portable preparation JSON are authorized. Never publish real
+rosters or rubric tables. Snapshots with these assessments require protocol 4;
+updated clients must still accept legacy protocol 3. Keep all live timing local.
+
+## Native preparation V1
+
+Preparation/publication now belongs in the Android teacher app; the browser keeps
+reception and reports. Import rosters and performance tables separately, locally.
+New schema-2 assessments award one point per consecutive equal lap when each lap,
+rounded independently to the nearest second (half up), is no slower than the previous
+one. Maximum regularity is lap count minus one; performance receives the remainder
+of the teacher's chosen total. Preserve source table points and maximum, weight with
+integer ratios, and round only each final displayed total/conversion. Never change
+legacy schema-1 calculations or frozen sessions. New snapshots require protocol 5;
+updated clients still accept 3 and 4. Real tables remain private and are never bundled.

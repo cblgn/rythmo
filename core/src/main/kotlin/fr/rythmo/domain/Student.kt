@@ -22,6 +22,8 @@ data class RaceReport(
     val referenceLapMeters: Int = 400,
     val maxGradeTenths: Int = 200,
     val cancelledPassages: List<String> = emptyList(),
+    val assessmentScore: fr.rythmo.session.AssessmentScore? = null,
+    val assessment: fr.rythmo.session.AssessmentRubric? = null,
 )
 
 enum class TimingMode { MANUAL, AUTOMATIC }

@@ -10,7 +10,8 @@ plugins {
 kotlin { jvmToolchain(17) }
 jacoco { toolVersion = "0.8.15" }
 tasks.jacocoTestReport {
-    dependsOn(tasks.test)
+    dependsOn(tasks.test, ":app:testDebugUnitTest")
+    executionData(fileTree(rootProject.layout.projectDirectory.dir("app/build/jacoco")) { include("**/*.exec") })
     reports { xml.required.set(true); html.required.set(true) }
 }
 dependencies {

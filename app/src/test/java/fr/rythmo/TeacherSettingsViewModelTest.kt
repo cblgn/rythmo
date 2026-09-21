@@ -65,4 +65,15 @@ class TeacherSettingsViewModelTest {
         assertFalse(model.unlocked)
         assertThrows(IllegalStateException::class.java) { model.openIndividual() }
     }
+    @Test fun `notification stop request opens locked teacher access and is cancelled on background`() {
+        val model = model(); awaitIdle(model)
+        model.requestServerStop()
+        assertTrue(model.stopServerRequested)
+        assertTrue(model.requested)
+        assertFalse(model.unlocked)
+        assertThrows(IllegalStateException::class.java) { model.requireUnlocked() }
+        model.background()
+        assertFalse(model.stopServerRequested)
+        assertFalse(model.requested)
+    }
 }
