@@ -62,6 +62,9 @@ object TabularImport {
             (if (child.name == name) listOf(child) else emptyList()) + child.elements(name)
         }
     }
+    // Standard SAX identifiers, not network addresses. Replacing HTTP with HTTPS would make them unrecognized.
+    // https://docs.oracle.com/en/java/javase/17/docs/api/java.xml/org/xml/sax/package-summary.html
+    @Suppress("kotlin:S5332")
     private fun xml(bytes: ByteArray): XmlNode {
         val reader = SAXParserFactory.newInstance().apply { isNamespaceAware = true }.newSAXParser().xmlReader
         reader.setFeature("http://xml.org/sax/features/external-general-entities", false)
