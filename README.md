@@ -4,6 +4,15 @@
 
 Évaluation de demi-fond hors ligne, pour Android, avec serveur enseignant local sur PC ou téléphone Android.
 
+## Point de reprise — 22 septembre 2026
+
+Le projet est conservé comme **prototype technique** pendant la clarification du
+besoin pédagogique. Les épreuves et évaluations peuvent différer selon les quatre
+niveaux du collège ; les règles actuelles ne constituent pas une spécification
+métier définitive. Voir [l’état du projet et la procédure de reprise](docs/project-checkpoint.md).
+Le repère fixe est `checkpoint-2026-09-22` ; `main` et Dependabot peuvent continuer
+à évoluer. Ce point de reprise n’est pas une release 0.1.
+
 ## Préparer un cours sur Android — V1
 
 Dans **⋮ → Accès professeur → Séance**, importer la classe (CSV/XLSX : NOM,
@@ -47,7 +56,7 @@ Sur le téléphone :
 2. Garder l’adresse `https://127.0.0.1:8765`, renseigner le code d’association et nommer l’appareil.
 3. Dans **⋮ → Accès professeur**, associer le serveur HTTPS en comparant les six groupes du code de vérification au code affiché sur le serveur. Puis **Récupérer la séance**, sélectionner de 1 à 8 élèves, puis **Valider le groupe**. Chaque élève est ainsi affecté à un seul appareil pour cette séance.
 4. **Démarrer la course**. Toucher la case de chaque élève à ses passages. Le Wi-Fi et le câble peuvent être déconnectés pendant la course.
-5. Chaque arrivée sauvegarde le résultat et génère immédiatement un PDF. Toucher une case terminée permet de consulter le bilan et de corriger chaque passage une seule fois.
+5. Chaque arrivée sauvegarde le résultat et génère immédiatement un PDF. Toucher une case terminée permet de consulter le bilan et son PDF. La modification des intervalles a été retirée ; les anciennes corrections restent lisibles.
 6. Reconnecter le téléphone et, si nécessaire, rétablir le tunnel USB. **Envoyer les bilans** demande le code professeur, puis transmet les données et les PDF, avec confirmation de réception. Les copies locales restent disponibles.
 
 **Actions professeur** permet l’abandon d’un seul élève (blessure…), ou la clôture de la série avec envoi des PDF disponibles. Ces actions nécessitent un code professeur à six chiffres, distinct du code d’association, visible dans l’espace enseignant du serveur. Le contrôle fonctionne hors ligne après synchronisation ; après cinq erreurs, une pause de 30 secondes s’applique. Une clôture sans réseau conserve les bilans pour un envoi ultérieur. Les abandons restent non notés et leurs passages sont conservés. Les élèves affectés à une série ne sont pas réattribués dans la même séance : publier une nouvelle séance pour une nouvelle tentative.
@@ -61,17 +70,18 @@ Sur le téléphone :
 | 4e | Quartz, Améthyste |
 | 3e | Ouessant, Belle-Île |
 
-Chaque classe contient 30 identités fictives, 15 filles et 15 garçons. Le professeur peut modifier la liste avant publication d’une séance, au format `Prénom;Nom;F` ou `Prénom;Nom;G`, une ligne par élève.
+Chaque classe contient 30 identités fictives, 15 filles et 15 garçons. Le parcours actuel importe les listes dans l’application professeur avec les colonnes NOM, Prénom, Sexe. Les classes de démonstration restent disponibles pour les essais.
 
-Le barème **Démonstration v1** utilise une référence de 10 minutes pour 2000 m, garçon, 6e, multipliée par distance/2000, par le coefficient sexe (1 / 1,10) et par le coefficient niveau (1 / 0,95 / 0,90 / 0,85). Note provisoire : `min(20, 20 × référence / temps total)`, arrondie au dixième. Les coefficients sont modifiables ; chaque nouvelle séance conserve sa propre copie. La régularité reste informative.
+Le barème **Démonstration v1** utilise une référence de 10 minutes pour 2000 m, garçon, 6e, multipliée par distance/2000, par le coefficient sexe (1 / 1,10) et par le coefficient niveau (1 / 0,95 / 0,90 / 0,85). Note provisoire : `min(20, 20 × référence / temps total)`, arrondie au dixième. Ce calcul est conservé pour les séances historiques de démonstration ; il ne décrit pas les séances créées par le formulaire Android actuel, qui utilisent performance pondérée et régularité.
 
 Le parcours est configurable : distance entre passages, ou nombre de tours identiques. **1000 m en six tours identiques** affiche « Tour 1/6 » à « Tour 6/6 » et compare les six tours sans arrondir leur longueur pour les calculs. Un parcours avec passages fixes peut avoir un dernier segment plus court, exclu des comparaisons avec un tour complet.
 
 L’échelle maximale du barème de démonstration est configurable. Le format cible
 des barèmes est un JSON versionné, avec sous-notes et maxima, décrit dans
 [docs/baremes.md](docs/baremes.md). Le dépôt contient uniquement un exemple
-fictif ; le moteur général de notation reste à implémenter. Aucun classeur ou
-table de barème issue d'un cours réel n'est publié.
+fictif. Le calcul pondéré performance/régularité est implémenté pour les courses
+à distance fixée ; un moteur couvrant toutes les futures épreuves reste à définir.
+Aucun classeur ou table de barème issue d’un cours réel n’est publié.
 
 ## Wi-Fi local et mode enseignant Android
 
@@ -83,7 +93,7 @@ Le menu **⋮ → Accès professeur** ouvre les réglages après saisie du PIN l
 
 - Chaque passage est enregistré avant d’être confirmé à l’écran. Les fichiers JSON sont écrits puis remplacés atomiquement.
 - Les chronos utilisent l’horloge monotone du téléphone. Une fermeture de l’app conserve les passages ; les PDF manquants sont régénérés à la réouverture. Un redémarrage du téléphone interrompt le chrono et impose de clôturer les coureurs encore actifs.
-- Les PDF sont stockés dans les fichiers privés durables de l’application, avec une version par correction. Les résultats originaux sont conservés.
+- Les PDF sont stockés dans les fichiers privés durables de l’application, avec des révisions conservées, notamment après annulation d’une arrivée. Les résultats originaux et les corrections historiques sont conservés.
 - Les envois sont idempotents. Une interruption ne supprime aucun résultat ; relancer l’envoi complète les bilans restants.
 - Les données PC se trouvent dans `server-data/`. Conserver ce dossier pour garder les séances et les résultats. Ne pas désinstaller l’application Android pour mettre à jour : utiliser l’installation `-r` du script.
 - Le mode individuel historique reste accessible depuis les réglages professeur ; le stockage durable des séries et la synchronisation concernent le nouveau parcours groupe.
@@ -111,7 +121,7 @@ Pour les vérifications seules, après préparation de l’environnement Java/SD
 ./gradlew :server:installDist
 ```
 
-`core` partage les calculs, modèles, barèmes et protocole entre Android et PC ; `app` contient les écrans, la génération Android des PDF et le stockage client ; `server` lance le serveur PC. Les seules nouvelles bibliothèques sont Kotlin Serialization pour les données JSON et NanoHTTPD pour le serveur embarqué.
+`core` partage les calculs, modèles, barèmes et protocole entre Android et PC ; `app` contient les écrans, la génération Android des PDF et le stockage client ; `server` lance le serveur PC. Kotlin Serialization gère les données JSON, NanoHTTPD le serveur embarqué et Google Nearby Connections les échanges Android de proximité.
 
 L’accueil donne priorité aux élèves : logo, accès professeur discret et préparation/reprise du groupe. Le chrono au dixième reste fixe au-dessus de cartes défilantes (deux colonnes sur téléphone, quatre sur tablette large). Les cartes affichent le prénom et l’initiale du nom (nom complet en cas de conflit), le dernier temps cumulé et le nombre de passages. Après sauvegarde, le tour et son écart s’affichent quatre secondes. Bleu : ±1 seconde du tour précédent ; vert : plus rapide ; rouge : plus lent. Le premier tour et un dernier segment plus court restent neutres. Chaque arrivée conserve sa génération individuelle de PDF.
 
@@ -129,7 +139,7 @@ Le serveur expose la synchronisation TLS sur **8765**, la découverte UDP sur **
 
 La première association exige le PIN local du chronométreur, puis la comparaison du code de vérification de six groupes affiché par le serveur et le client. Le client mémorise l’empreinte complète du certificat. Un certificat différent est refusé ; aucune donnée ni aucun code d’association n’est envoyé avant validation TLS. Un changement d’adresse exige d’associer cette adresse dans les réglages. Il n’y a aucun repli HTTP, y compris en USB.
 
-Sur PC, le JDK crée une identité PKCS12 et des fichiers privés sous `server-data/tls/`. Sur Android, la clé privée reste dans Android Keystore. Sauvegarder les données du serveur PC, y compris ce dossier ; une identité perdue nécessite une nouvelle association. Le protocole passe à la version 3 : mettre à jour le serveur et les chronométreurs ensemble. Les anciennes courses sont conservées ; réassocier leur serveur avant l’envoi.
+Sur PC, le JDK crée une identité PKCS12 et des fichiers privés sous `server-data/tls/`. Sur Android, la clé privée reste dans Android Keystore. Sauvegarder les données du serveur PC, y compris ce dossier ; une identité perdue nécessite une nouvelle association. Le protocole de séance actuel est la version 5 pour les nouveaux barèmes ; les clients actuels lisent aussi les versions 3 et 4. Les anciennes courses sont conservées ; une identité serveur remplacée impose une nouvelle association avant l’envoi.
 
 ### PIN local et secours
 
@@ -139,12 +149,26 @@ Le premier lancement demande un PIN à six chiffres, sa confirmation et la conse
 
 ### Page professeur
 
-Les cinq onglets sont libres : **Appareils**, **Séance**, **Publication**, **Réception**, **Bilan et PDF**. Séance conserve son brouillon dans ce navigateur, y compris après actualisation, et calcule le parcours (par exemple 1000 m = 2 × 400 m + 200 m). L’option de tours identiques conserve notamment 1000 m en six tours. Publication affiche un récapitulatif et crée une nouvelle séance figée.
+L’application professeur propose **Séance**, **Appareils** et **Bilans**. La
+préparation native conserve le brouillon, présente un récapitulatif et publie une
+nouvelle séance figée. La console navigateur conserve **Appareils**, **Réception**
+et **Bilan et PDF** ; les anciens écrans de préparation/publication sont retirés
+de la navigation.
 
 Réception distingue les élèves non affectés, les bilans attendus, les bilans reçus et les abandons. Les élèves non affectés ne sont pas comptés comme manquants. Les onglets Réception et Bilan s’actualisent toutes les cinq secondes lorsqu’ils sont visibles, sans chevauchement des actualisations, et conservent l’affichage si le réseau échoue. Les dates de synchronisation ne décrivent pas une présence en ligne.
 
 ### Vérifications du parcours élève
 
-Les tests JVM couvrent les calculs, les corrections, le PIN, le secours, la limitation persistante des essais, les verrouillages du ViewModel et les couleurs après restauration. `node --test tests/teacher-page.test.cjs` vérifie les parcours, les compteurs de réception et la lecture du brouillon ; cette commande est également exécutée en CI. Des previews Compose couvrent la préparation, huit coureurs, la série terminée, une tablette large et les grands caractères.
+Les tests JVM et Android/Compose couvrent les calculs, les corrections historiques,
+le PIN et son secours, les verrouillages, les imports, le chronométrage et les
+échanges Nearby simulés. `npm ci --ignore-scripts` puis `node --test tests/*.test.cjs`
+vérifient la console et ses interactions. Des previews Compose couvrent la
+préparation, huit coureurs, la série terminée et les grands caractères.
 
-Validation locale : tests JVM, `lintDebug`, `assembleDebug`, construction du serveur ; navigateur Chromium pour les cinq onglets, clavier, largeur mobile, publication, brouillon après rechargement, actualisation périodique et conservation de l’affichage hors ligne. Sur Xiaomi, une copie séparée `fr.rythmo.validation` a permis de vérifier la création du PIN, la confirmation du secours, le reverrouillage en arrière-plan, la continuité du serveur, le blocage de son démarrage pendant une course, la reprise des passages, le PDF individuel et le report de la configuration initiale pendant une course existante, les grands caractères et le maintien du chrono lors du défilement. Un changement de configuration conserve le déverrouillage. Les données de l’application principale sont préservées. Huit arrivées simultanées, l’annulation auditée, les huit PDF et la nouvelle révision après annulation ont aussi été vérifiés sur ce téléphone. La découverte Wi-Fi et l’utilisation sur plusieurs appareils restent à vérifier en conditions de cours.
+Les validations physiques précédentes ont utilisé le Xiaomi comme professeur et
+la tablette Samsung comme appareil élève, dans des installations séparées
+`fr.rythmo.validation` : association Nearby, course hors ligne, reprise, PDF et
+accusés de réception. Voir les détails et limites dans
+[la validation du parcours natif](docs/native-teacher-preparation.md).
+La validation pédagogique en conditions de cours reste à effectuer après
+clarification du besoin.
