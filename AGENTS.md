@@ -393,3 +393,13 @@ of the teacher's chosen total. Preserve source table points and maximum, weight 
 integer ratios, and round only each final displayed total/conversion. Never change
 legacy schema-1 calculations or frozen sessions. New snapshots require protocol 5;
 updated clients still accept 3 and 4. Real tables remain private and are never bundled.
+
+## Project checkpoint — 22 September 2026
+
+The user is pausing domain expansion while the teacher clarifies assessments for
+all four school levels (fixed distance vs fixed duration; performance, regularity,
+or both). Preserve the current implementation as a technical reference, not a
+final product specification. See docs/project-checkpoint.md. Do not move the
+checkpoint-2026-09-22 tag. New domain behavior requires explicit validated examples;
+retain frozen historical sessions and grading. Dependabot automation remains enabled.
+Private checkpoint archives stay outside Git; Android device data is not included.
