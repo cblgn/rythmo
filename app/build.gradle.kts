@@ -29,7 +29,7 @@ android {
 
 dependencies {
     implementation(project(":core"))
-    implementation("com.google.android.gms:play-services-nearby:19.5.0")
+    implementation("com.google.android.gms:play-services-nearby:19.5.1")
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.material3:material3")
@@ -40,7 +40,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-savedstate:2.9.0")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("org.robolectric:robolectric:4.18.1")
     testImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
